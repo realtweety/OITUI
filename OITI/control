@@ -1,0 +1,9 @@
+Package: com.wilburt.oiti
+Name: OITI
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Dynamic Island simulation module for OITUI (fork of VisibleIsland by ethxnn88, used with permission).
+Maintainer: wilburt
+Author: wilburt (based on VisibleIsland by ethxnn88)
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000), preferenceloader, firmware (>= 16.0), com.wilburt.oitcore

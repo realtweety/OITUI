@@ -1,0 +1,19 @@
+# Theos
+.packages/
+.theos/
+obj/
+packages/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Editors
+.vscode/
+.idea/
+
+# Logs
+*.log
