@@ -1,4 +1,4 @@
-#  OITUI (OrderInTheUserExperience)
+#  OITUI (OrderInTheUserInterface)
 
 > **Bringing the modern iOS experience to legacy jailbroken devices.**
 
