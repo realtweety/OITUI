@@ -17,3 +17,7 @@ Desktop.ini
 
 # Logs
 *.log
+.theos/
+packages/
+*.deb
+.DS_Store

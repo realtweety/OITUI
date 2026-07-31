@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <sys/sysctl.h>
+#import <math.h>
 #import <OITCore/OITCore.h>
 
 CGFloat red = 0.0;
@@ -66,12 +67,19 @@ static BOOL lineDisabled;
 
 @end
 
+static CGFloat OITISafeScaleValue(CGFloat value) {
+    if (!isfinite(value)) return 1.0;
+    if (value < 0.05) return 1.0;
+    if (value > 3.0) return 3.0;
+    return value;
+}
+
 %hook SBSystemApertureWindow
 
 - (void)layoutSubviews {
     %orig;
     if (scaleEnabled && fixEnabled) {
-        self.transform = CGAffineTransformMakeScale(scale, scale);
+        self.transform = CGAffineTransformMakeScale(OITISafeScaleValue(scale), OITISafeScaleValue(scale));
         NSString *deviceModel = [Model deviceModel];
         if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
             %orig;
@@ -194,7 +202,7 @@ static BOOL lineDisabled;
             self.frame = frame;
         }
     } else if (scaleEnabled && posEnabled) {
-        self.transform = CGAffineTransformMakeScale(scale, scale);
+        self.transform = CGAffineTransformMakeScale(OITISafeScaleValue(scale), OITISafeScaleValue(scale));
         %orig;
         CGFloat SyPos = yPos / scale;
         CGRect frame = self.frame;
@@ -316,7 +324,7 @@ static BOOL lineDisabled;
         frame.origin.x = xPos;
         self.frame = frame;
     } else if (scaleEnabled && !posEnabled | scaleEnabled && !fixEnabled) {
-        self.transform = CGAffineTransformMakeScale(scale, scale);
+        self.transform = CGAffineTransformMakeScale(OITISafeScaleValue(scale), OITISafeScaleValue(scale));
     }
 }
 
@@ -325,9 +333,7 @@ static BOOL lineDisabled;
 %hook _SBSystemApertureMagiciansCurtainView
 
 -(void)didMoveToWindow {
-    if (fixEnabled) {
-        self.hidden = YES;
-    } else if (posEnabled) {
+    if (fixEnabled || posEnabled || scaleEnabled) {
         self.hidden = YES;
     } else {
         self.hidden = NO;
@@ -370,7 +376,19 @@ static BOOL lineDisabled;
 
 - (void)layoutSubviews {
     %orig;
-    
+
+    if (!transEnabled && !lineDisabled) return;
+
+    // SBFTouchPassThroughView is used pervasively throughout SpringBoard
+    // (Dock, folders, notification banners, home screen icons, etc.) --
+    // the subviews.count==4 heuristic below is NOT specific enough on its
+    // own and was previously firing on unrelated views elsewhere in the
+    // UI. Scoping to instances actually inside SBSystemApertureWindow
+    // fixes that collateral matching.
+    static Class apertureWindowClass;
+    if (!apertureWindowClass) apertureWindowClass = NSClassFromString(@"SBSystemApertureWindow");
+    if (!apertureWindowClass || !OITViewHasAncestorOfClass(self, apertureWindowClass)) return;
+
     if (transEnabled) {
         if (self.subviews.count == 4) {
             UIView *targetSubview = self.subviews[2];
@@ -700,7 +718,7 @@ void preferencesChanged(){
     green = [sOITIPreferences floatForKey:@"green" default:0.0];
     blue = [sOITIPreferences floatForKey:@"blue" default:0.0];
     alpha = [sOITIPreferences floatForKey:@"alpha" default:0.0];
-    scale = [sOITIPreferences floatForKey:@"scale" default:0.0];
+    scale = [sOITIPreferences floatForKey:@"scale" default:1.0];
 }
 
 %ctor{

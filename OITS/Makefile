@@ -4,17 +4,16 @@ INSTALL_TARGET_PROCESSES = SpringBoard
 ARCHS = arm64 arm64e
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = OITI
+TWEAK_NAME = OITS
 
-OITI_FILES = Tweak.xm
-OITI_CFLAGS = -fobjc-arc
-OITI_LDFLAGS += $(THEOS)/lib/iphone/rootless/OITCore.dylib
+OITS_FILES = Tweak.xm
+OITS_CFLAGS = -fobjc-arc
+OITS_LDFLAGS += $(THEOS)/lib/iphone/rootless/OITCore.dylib
 
 include $(THEOS_MAKE_PATH)/tweak.mk
-SUBPROJECTS += OITIPrefs
-SUBPROJECTS += OITIRestoreGestalt
+SUBPROJECTS += OITSPrefs
 include $(THEOS_MAKE_PATH)/aggregate.mk
 
 after-stage::
 	@mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences
-	@cp OITIPrefs/Resources/entry.plist $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/OITIPrefs.plist
+	@cp OITSPrefs/Resources/entry.plist $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/OITSPrefs.plist

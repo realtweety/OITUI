@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+
+# Only restore on genuine removal -- never on the upgrade-in-place that
+# happens every time this package is reinstalled during development.
+if [ "$1" != "remove" ]; then
+    exit 0
+fi
+
+HELPER="/var/jb/usr/libexec/OITIRestoreGestalt"
+
+if [ -x "$HELPER" ]; then
+    "$HELPER" || true
+fi
+
+exit 0

@@ -1,0 +1,9 @@
+Package: com.wilburt.oitinspector
+Name: OITInspector
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Read-only runtime diagnostics for the OITUI ecosystem. Dumps window/view hierarchies and matching class names to help develop OITS, OITI, and OITG. Writes only to its own log directory -- never touches system state.
+Maintainer: wilburt
+Author: wilburt
+Section: Development
+Depends: firmware (>= 16.0), com.wilburt.oitcore

@@ -1,0 +1,9 @@
+Package: com.wilburt.oits
+Name: OITS
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Status bar layout module for OITUI. Repositions system status bar elements to avoid overlap with OITI's simulated Dynamic Island, working toward an iOS 26/27-style layout.
+Maintainer: wilburt
+Author: wilburt
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000), preferenceloader, firmware (>= 16.0), com.wilburt.oitcore

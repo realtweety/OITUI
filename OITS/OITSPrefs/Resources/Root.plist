@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>items</key>
+    <array>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>footerText</key>
+        <string>Moves the status bar clock. Applies live -- no respring needed.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>ClockRepositionEnabled</string>
+        <key>label</key>
+        <string>Reposition Clock</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Clock Position</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Leading Offset</string>
+        <key>default</key>
+        <real>16.0</real>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>414.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>ClockLeadingOffset</string>
+      </dict>
+
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>footerText</key>
+        <string>Moves the battery icon.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>BatteryRepositionEnabled</string>
+        <key>label</key>
+        <string>Reposition Battery</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Battery Position</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Leading Offset</string>
+        <key>default</key>
+        <real>384.0</real>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>414.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>BatteryLeadingOffset</string>
+      </dict>
+
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>footerText</key>
+        <string>Moves the cellular signal icon.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>CellularSignalRepositionEnabled</string>
+        <key>label</key>
+        <string>Reposition Cellular Signal</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Cellular Signal Position</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Leading Offset</string>
+        <key>default</key>
+        <real>6.0</real>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>414.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>CellularSignalLeadingOffset</string>
+      </dict>
+
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>footerText</key>
+        <string>Moves the WiFi signal icon.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>WifiSignalRepositionEnabled</string>
+        <key>label</key>
+        <string>Reposition WiFi Signal</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>WiFi Signal Position</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Leading Offset</string>
+        <key>default</key>
+        <real>76.0</real>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>414.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>WifiSignalLeadingOffset</string>
+      </dict>
+
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>footerText</key>
+        <string>Moves the carrier name text (e.g. "VZW"). Identified as the leftmost of any non-clock status bar text -- see Notes.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>CarrierTextRepositionEnabled</string>
+        <key>label</key>
+        <string>Reposition Carrier Text</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Carrier Text Position</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Leading Offset</string>
+        <key>default</key>
+        <real>28.0</real>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>414.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>CarrierTextLeadingOffset</string>
+      </dict>
+
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>footerText</key>
+        <string>Moves the network type text (e.g. "LTE"). Identified as the second-leftmost of any non-clock status bar text -- see Notes.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>NetworkTypeRepositionEnabled</string>
+        <key>label</key>
+        <string>Reposition Network Type</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Network Type Position</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Leading Offset</string>
+        <key>default</key>
+        <real>80.0</real>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>414.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>NetworkTypeLeadingOffset</string>
+      </dict>
+
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+      </dict>
+    </array>
+    <key>title</key>
+    <string>OITS</string>
+  </dict>
+</plist>

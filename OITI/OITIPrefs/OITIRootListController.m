@@ -3,6 +3,20 @@
 #import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
 
+static NSString * const kOITIGestaltPlistPath = @"/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/com.apple.MobileGestalt.plist";
+static NSString * const kOITIGestaltCacheExtraKey = @"CacheExtra";
+static NSString * const kOITIGestaltNestedKey = @"oPeik/9e8lQWMszEjbPzng";
+static NSString * const kOITIGestaltLeafKey = @"ArtworkDeviceSubType";
+static NSString * const kOITIGestaltPrefsDomain = @"com.wilburt.oiti.prefs";
+
+// Plain, fixed-path breadcrumb -- deliberately NOT going through CFPreferences.
+// The uninstall-time helper (which runs as root, not mobile) reads this file
+// directly instead of trying to resolve OITI's real preferences domain, since
+// that domain's on-disk representation is not guaranteed to be a flat file we
+// can locate, and CFPreferences' "current user" would resolve incorrectly
+// from a root-owned process anyway.
+static NSString * const kOITIGestaltBackupBreadcrumbPath = @"/var/mobile/Library/Preferences/OITIGestaltBackup.plist";
+
 @implementation OITIRootListController
 
 - (NSArray *)specifiers {
@@ -47,56 +61,90 @@
     OITRequestRespring();
 }
 
-+ (void)set2556 {
-    NSString *plistPath = @"/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/com.apple.MobileGestalt.plist";
+// MARK: - MobileGestalt hardware-identity spoof (backup-safe)
 
-    NSMutableDictionary *plistDictionary = [NSMutableDictionary dictionaryWithContentsOfFile:plistPath];
++ (void)oiti_writeBackupBreadcrumb {
+    OITPreferences *prefs = [OITPreferences preferencesWithDomain:kOITIGestaltPrefsDomain];
+    BOOL captured = [prefs boolForKey:@"MobileGestaltBackupCaptured" default:NO];
+    if (!captured) return;
 
-    if (!plistDictionary) {
-        return;
+    NSMutableDictionary *breadcrumb = [NSMutableDictionary dictionary];
+    breadcrumb[@"BackupCaptured"] = @YES;
+    BOOL wasPresent = [prefs boolForKey:@"MobileGestaltOriginalArtworkDeviceSubTypePresent" default:NO];
+    breadcrumb[@"OriginalValuePresent"] = @(wasPresent);
+    if (wasPresent) {
+        id originalValue = [prefs objectForKey:@"MobileGestaltOriginalArtworkDeviceSubType" default:nil];
+        if (originalValue) {
+            breadcrumb[@"OriginalValue"] = originalValue;
+        }
     }
-
-    NSMutableDictionary *cacheExtraDictionary = plistDictionary[@"CacheExtra"];
-    if (!cacheExtraDictionary) {
-        cacheExtraDictionary = [NSMutableDictionary dictionary];
-        plistDictionary[@"CacheExtra"] = cacheExtraDictionary;
-    }
-
-    NSMutableDictionary *nestedDictionary = cacheExtraDictionary[@"oPeik/9e8lQWMszEjbPzng"];
-    if (!nestedDictionary) {
-        nestedDictionary = [NSMutableDictionary dictionary];
-        cacheExtraDictionary[@"oPeik/9e8lQWMszEjbPzng"] = nestedDictionary;
-    }
-
-    [nestedDictionary setValue:@(2556) forKey:@"ArtworkDeviceSubType"];
-
-    [plistDictionary writeToFile:plistPath atomically:YES];
+    [breadcrumb writeToFile:kOITIGestaltBackupBreadcrumbPath atomically:YES];
 }
 
-+ (void)set0000 {
-    NSString *plistPath = @"/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/com.apple.MobileGestalt.plist";
++ (void)oiti_backupOriginalArtworkDeviceSubTypeIfNeeded {
+    OITPreferences *prefs = [OITPreferences preferencesWithDomain:kOITIGestaltPrefsDomain];
+    if ([prefs boolForKey:@"MobileGestaltBackupCaptured" default:NO]) {
+        return; // Already captured once, ever -- never re-capture a possibly-spoofed value.
+    }
 
-    NSMutableDictionary *plistDictionary = [NSMutableDictionary dictionaryWithContentsOfFile:plistPath];
+    NSDictionary *plistDictionary = [NSDictionary dictionaryWithContentsOfFile:kOITIGestaltPlistPath];
+    NSDictionary *cacheExtraDictionary = plistDictionary[kOITIGestaltCacheExtraKey];
+    NSDictionary *nestedDictionary = cacheExtraDictionary[kOITIGestaltNestedKey];
+    id existingValue = nestedDictionary[kOITIGestaltLeafKey];
 
+    if ([existingValue isKindOfClass:[NSNumber class]]) {
+        [prefs setObject:@YES forKey:@"MobileGestaltOriginalArtworkDeviceSubTypePresent"];
+        [prefs setObject:existingValue forKey:@"MobileGestaltOriginalArtworkDeviceSubType"];
+    } else {
+        [prefs setObject:@NO forKey:@"MobileGestaltOriginalArtworkDeviceSubTypePresent"];
+    }
+    [prefs setObject:@YES forKey:@"MobileGestaltBackupCaptured"];
+    [prefs synchronize];
+
+    [self oiti_writeBackupBreadcrumb];
+}
+
++ (void)oiti_writeArtworkDeviceSubTypeValue:(NSNumber *)value {
+    NSMutableDictionary *plistDictionary = [NSMutableDictionary dictionaryWithContentsOfFile:kOITIGestaltPlistPath];
     if (!plistDictionary) {
         return;
     }
 
-    NSMutableDictionary *cacheExtraDictionary = plistDictionary[@"CacheExtra"];
-    if (!cacheExtraDictionary) {
-        cacheExtraDictionary = [NSMutableDictionary dictionary];
-        plistDictionary[@"CacheExtra"] = cacheExtraDictionary;
+    NSMutableDictionary *cacheExtraDictionary = [plistDictionary[kOITIGestaltCacheExtraKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    NSMutableDictionary *nestedDictionary = [cacheExtraDictionary[kOITIGestaltNestedKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+
+    if (value) {
+        nestedDictionary[kOITIGestaltLeafKey] = value;
+    } else {
+        [nestedDictionary removeObjectForKey:kOITIGestaltLeafKey];
     }
 
-    NSMutableDictionary *nestedDictionary = cacheExtraDictionary[@"oPeik/9e8lQWMszEjbPzng"];
-    if (!nestedDictionary) {
-        nestedDictionary = [NSMutableDictionary dictionary];
-        cacheExtraDictionary[@"oPeik/9e8lQWMszEjbPzng"] = nestedDictionary;
+    cacheExtraDictionary[kOITIGestaltNestedKey] = nestedDictionary;
+    plistDictionary[kOITIGestaltCacheExtraKey] = cacheExtraDictionary;
+
+    [plistDictionary writeToFile:kOITIGestaltPlistPath atomically:YES];
+}
+
++ (void)enableIslandHardwareIdentitySpoof {
+    [self oiti_backupOriginalArtworkDeviceSubTypeIfNeeded];
+    [self oiti_writeArtworkDeviceSubTypeValue:@(2556)];
+}
+
++ (void)restoreOriginalHardwareIdentity {
+    OITPreferences *prefs = [OITPreferences preferencesWithDomain:kOITIGestaltPrefsDomain];
+    if (![prefs boolForKey:@"MobileGestaltBackupCaptured" default:NO]) {
+        return; // Feature was never enabled -- nothing was ever captured, nothing to restore.
     }
 
-    [nestedDictionary setValue:@(0000) forKey:@"ArtworkDeviceSubType"];
+    BOOL wasPresent = [prefs boolForKey:@"MobileGestaltOriginalArtworkDeviceSubTypePresent" default:NO];
+    if (wasPresent) {
+        NSNumber *originalValue = [prefs objectForKey:@"MobileGestaltOriginalArtworkDeviceSubType" default:nil];
+        [self oiti_writeArtworkDeviceSubTypeValue:originalValue];
+    } else {
+        [self oiti_writeArtworkDeviceSubTypeValue:nil];
+    }
 
-    [plistDictionary writeToFile:plistPath atomically:YES];
+    [self oiti_writeBackupBreadcrumb];
 }
 
 + (void)fixUnsupported {
@@ -172,9 +220,9 @@
     if ([[specifier propertyForKey:@"key"] isEqualToString:@"islandEnabled"]) {
         BOOL switchValue = [value boolValue];
         if (switchValue) {
-			[OITIRootListController set2556];
+			[OITIRootListController enableIslandHardwareIdentitySpoof];
         } else {
-			[OITIRootListController set0000];
+			[OITIRootListController restoreOriginalHardwareIdentity];
         }
     } else if ([[specifier propertyForKey:@"key"] isEqualToString:@"fixEnabled"]) {
         BOOL switchValue = [value boolValue];
