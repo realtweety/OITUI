@@ -1,4 +1,5 @@
 #import "OITNotifications.h"
+#import <objc/message.h>
 
 static NSMutableArray<OITDarwinNotificationHandler> *sOITObservedHandlers;
 
@@ -17,10 +18,7 @@ void OITObserveDarwinNotification(NSString *name, OITDarwinNotificationHandler h
     if (!sOITObservedHandlers) {
         sOITObservedHandlers = [NSMutableArray array];
     }
-    // Darwin notification center does not retain the "observer" pointer, so the
-    // block must be kept alive independently. We never remove these -- matching
-    // how every other Darwin observer in this ecosystem is registered once in
-    // %ctor and expected to live for the process's lifetime.
+
     OITDarwinNotificationHandler retainedHandler = [handler copy];
     [sOITObservedHandlers addObject:retainedHandler];
 
@@ -34,11 +32,40 @@ void OITObserveDarwinNotification(NSString *name, OITDarwinNotificationHandler h
 
 void OITPostDarwinNotification(NSString *name) {
     if (!name.length) return;
+
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                        (__bridge CFStringRef)name,
-                                        NULL, NULL, YES);
+                                         (__bridge CFStringRef)name,
+                                         NULL,
+                                         NULL,
+                                         YES);
 }
 
 void OITRequestRespring(void) {
     OITPostDarwinNotification(@"com.oitui.respring");
+}
+
+__attribute__((constructor))
+static void OITNotificationsInit(void) {
+    if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
+
+    OITObserveDarwinNotification(@"com.oitui.respring", ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            Class serviceClass = NSClassFromString(@"FBSystemService");
+            if (!serviceClass) return;
+
+            id service = ((id (*)(id, SEL))objc_msgSend)(
+                serviceClass,
+                @selector(sharedInstance)
+            );
+
+            SEL relaunchSelector = @selector(exitAndRelaunch:);
+            if ([service respondsToSelector:relaunchSelector]) {
+                ((void (*)(id, SEL, BOOL))objc_msgSend)(
+                    service,
+                    relaunchSelector,
+                    YES
+                );
+            }
+        });
+    });
 }

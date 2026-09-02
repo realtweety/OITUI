@@ -289,6 +289,98 @@
       <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Hide Elements</string>
+        <key>footerText</key>
+        <string>Only takes effect while the matching Reposition toggle above is also on.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>ClockHidden</string>
+        <key>label</key>
+        <string>Hide Clock</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>BatteryHidden</string>
+        <key>label</key>
+        <string>Hide Battery</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>WifiSignalHidden</string>
+        <key>label</key>
+        <string>Hide WiFi Signal</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>CellularSignalHidden</string>
+        <key>label</key>
+        <string>Hide Cellular Signal</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>CarrierTextHidden</string>
+        <key>label</key>
+        <string>Hide Carrier Text</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oits.prefs</string>
+        <key>key</key>
+        <string>NetworkTypeHidden</string>
+        <key>label</key>
+        <string>Hide Network Type</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oits/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
       </dict>
     </array>
     <key>title</key>

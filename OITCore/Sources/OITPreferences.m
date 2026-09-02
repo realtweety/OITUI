@@ -36,12 +36,28 @@
 
 - (CGFloat)floatForKey:(NSString *)key default:(CGFloat)fallback {
     id value = self.cache[key];
-    return [value isKindOfClass:[NSNumber class]] ? (CGFloat)[value doubleValue] : fallback;
+    if ([value isKindOfClass:[NSNumber class]]) {
+        return (CGFloat)[value doubleValue];
+    }
+    if ([value isKindOfClass:[NSString class]]) {
+        // PSEditTextCell specifiers with isNumeric=false store their value
+        // as a plain string, not NSNumber. Falling back silently here was
+        // causing OITI's custom X/Y position and scale fields to be
+        // entirely ignored.
+        return (CGFloat)[(NSString *)value doubleValue];
+    }
+    return fallback;
 }
 
 - (NSInteger)integerForKey:(NSString *)key default:(NSInteger)fallback {
     id value = self.cache[key];
-    return [value isKindOfClass:[NSNumber class]] ? [value integerValue] : fallback;
+    if ([value isKindOfClass:[NSNumber class]]) {
+        return [value integerValue];
+    }
+    if ([value isKindOfClass:[NSString class]]) {
+        return [(NSString *)value integerValue];
+    }
+    return fallback;
 }
 
 - (NSString *)stringForKey:(NSString *)key default:(NSString *)fallback {

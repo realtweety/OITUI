@@ -27,13 +27,6 @@ static BOOL transEnabled;
 static BOOL scaleEnabled;
 static BOOL lineDisabled;
 
-@interface FBSystemService : NSObject
-
-+(id)sharedInstance;
--(void)exitAndRelaunch:(BOOL)arg1;
-
-@end
-
 @interface SBSystemApertureWindow : UIView
 @end
 
@@ -687,10 +680,6 @@ static CGFloat OITISafeScaleValue(CGFloat value) {
 
 %end
 
-static void performRespring(void) {
-    [[%c(FBSystemService) sharedInstance] exitAndRelaunch:YES];
-}
-
 static OITPreferences *sOITIPreferences;
 
 void preferencesChanged(){
@@ -727,10 +716,4 @@ void preferencesChanged(){
 	OITObserveDarwinNotification(@"com.wilburt.oiti/PrefsChanged", ^{
 	    preferencesChanged();
 	});
-
-    if ([[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
-        OITObserveDarwinNotification(@"com.oitui.respring", ^{
-            performRespring();
-        });
-    }
 }
