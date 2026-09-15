@@ -21,7 +21,6 @@ static NSUInteger sSuppressionLogCount = 0;
 
 static BOOL sClockRepositionEnabled = NO;
 static BOOL sPreviousClockEnabled = NO;
-static BOOL sClockHidden = NO;
 static CGFloat sClockLeadingOffset = 16.0;
 static NSHashTable<UIView *> *sTrackedClockViews;
 static Class sStatusBarStringViewClass;
@@ -29,7 +28,6 @@ static const void *kOITSClockNaturalXKey = &kOITSClockNaturalXKey;
 
 static BOOL sBatteryRepositionEnabled = NO;
 static BOOL sPreviousBatteryEnabled = NO;
-static BOOL sBatteryHidden = NO;
 static CGFloat sBatteryLeadingOffset = 384.0;
 static NSHashTable<UIView *> *sTrackedBatteryViews;
 static Class sStaticBatteryViewClass;
@@ -37,7 +35,6 @@ static const void *kOITSBatteryNaturalXKey = &kOITSBatteryNaturalXKey;
 
 static BOOL sWifiRepositionEnabled = NO;
 static BOOL sPreviousWifiEnabled = NO;
-static BOOL sWifiHidden = NO;
 static CGFloat sWifiLeadingOffset = 76.0;
 static NSHashTable<UIView *> *sTrackedWifiViews;
 static Class sStatusBarWifiSignalViewClass;
@@ -45,56 +42,21 @@ static const void *kOITSWifiNaturalXKey = &kOITSWifiNaturalXKey;
 
 static BOOL sCellularRepositionEnabled = NO;
 static BOOL sPreviousCellularEnabled = NO;
-static BOOL sCellularHidden = NO;
 static CGFloat sCellularLeadingOffset = 6.0;
 static NSHashTable<UIView *> *sTrackedCellularViews;
 static const void *kOITSCellularNaturalXKey = &kOITSCellularNaturalXKey;
 
 static BOOL sCarrierTextRepositionEnabled = NO;
 static BOOL sPreviousCarrierTextEnabled = NO;
-static BOOL sCarrierTextHidden = NO;
 static CGFloat sCarrierTextLeadingOffset = 28.0;
 static NSHashTable<UIView *> *sTrackedCarrierTextViews;
 static const void *kOITSCarrierTextNaturalXKey = &kOITSCarrierTextNaturalXKey;
 
 static BOOL sNetworkTypeRepositionEnabled = NO;
 static BOOL sPreviousNetworkTypeEnabled = NO;
-static BOOL sNetworkTypeHidden = NO;
 static CGFloat sNetworkTypeLeadingOffset = 100.0;
 static NSHashTable<UIView *> *sTrackedNetworkTypeViews;
 static const void *kOITSNetworkTypeNaturalXKey = &kOITSNetworkTypeNaturalXKey;
-
-// Class-wide Logos hooks below fire on EVERY instance of these status bar
-// classes system-wide -- including every place SpringBoard builds its own
-// private, fully real copy of the same view classes to render status
-// content somewhere other than the primary status bar. Two confirmed so
-// far: SBMainSwitcherWindow (App Switcher card previews) and
-// SBControlCenterWindow (Control Center's status peek area) both do this,
-// via the same UIStatusBar_Modern / _UIStatusBar / _UIStatusBarForegroundView
-// structure with real _UIStatusBarStringView / _UIStaticBatteryView /
-// _UIStatusBarWifiSignalView / _UIStatusBarCellularSignalView children.
-// Without this guard we track and transform those mirrored instances too,
-// using offsets calibrated only for the primary status bar's coordinate
-// space -- which is what was causing elements to slide, vanish, and
-// self-correct a beat later around App Switcher and (now also) Control
-// Center transitions.
-static Class sMainSwitcherWindowClass;
-static Class sControlCenterWindowClass;
-
-static BOOL OITSViewIsInsideExcludedMirrorContext(UIView *view) {
-    if (!view) return NO;
-    if (!sMainSwitcherWindowClass) sMainSwitcherWindowClass = NSClassFromString(@"SBMainSwitcherWindow");
-    if (!sControlCenterWindowClass) sControlCenterWindowClass = NSClassFromString(@"SBControlCenterWindow");
-    if (sMainSwitcherWindowClass &&
-        ([view isKindOfClass:sMainSwitcherWindowClass] || OITViewHasAncestorOfClass(view, sMainSwitcherWindowClass))) {
-        return YES;
-    }
-    if (sControlCenterWindowClass &&
-        ([view isKindOfClass:sControlCenterWindowClass] || OITViewHasAncestorOfClass(view, sControlCenterWindowClass))) {
-        return YES;
-    }
-    return NO;
-}
 
 static void OITSDebugLog(NSString *format, ...) {
     va_list args;
@@ -139,9 +101,6 @@ static void OITSReapplyTransform(UIView *view, const void *naturalXKey, CGFloat 
     }
 }
 
-// Also clears any hide state -- if reposition gets disabled while a view
-// was hidden, this guarantees it becomes visible again rather than staying
-// invisible with nothing left tracking it.
 static void OITSResetAndForgetTrackedViews(NSHashTable<UIView *> *trackedSet, const void *naturalXKey, NSString *label) {
     if (!trackedSet) return;
     NSUInteger resetCount = 0;
@@ -150,7 +109,6 @@ static void OITSResetAndForgetTrackedViews(NSHashTable<UIView *> *trackedSet, co
             view.transform = CGAffineTransformIdentity;
             resetCount++;
         }
-        if (view.hidden) view.hidden = NO;
         objc_setAssociatedObject(view, naturalXKey, nil, OBJC_ASSOCIATION_RETAIN);
     }
     [trackedSet removeAllObjects];
@@ -159,7 +117,6 @@ static void OITSResetAndForgetTrackedViews(NSHashTable<UIView *> *trackedSet, co
 
 static void OITSFindCenteredStringViews(UIView *view, CGFloat screenCenterX, NSUInteger depth) {
     if (!view || depth > kOITSMaxTraverseDepth) return;
-    if (OITSViewIsInsideExcludedMirrorContext(view)) return;
     if (sStatusBarStringViewClass && [view isKindOfClass:sStatusBarStringViewClass]) {
         if (![sTrackedClockViews containsObject:view]) {
             NSNumber *naturalX = objc_getAssociatedObject(view, kOITSClockNaturalXKey);
@@ -181,7 +138,6 @@ static void OITSFindCenteredStringViews(UIView *view, CGFloat screenCenterX, NSU
 
 static void OITSFindBatteryViews(UIView *view, NSUInteger depth) {
     if (!view || depth > kOITSMaxTraverseDepth) return;
-    if (OITSViewIsInsideExcludedMirrorContext(view)) return;
     if (sStaticBatteryViewClass && [view isKindOfClass:sStaticBatteryViewClass]) {
         if (![sTrackedBatteryViews containsObject:view]) {
             NSNumber *naturalX = objc_getAssociatedObject(view, kOITSBatteryNaturalXKey);
@@ -200,7 +156,6 @@ static void OITSFindBatteryViews(UIView *view, NSUInteger depth) {
 
 static void OITSFindWifiViews(UIView *view, NSUInteger depth) {
     if (!view || depth > kOITSMaxTraverseDepth) return;
-    if (OITSViewIsInsideExcludedMirrorContext(view)) return;
     if (sStatusBarWifiSignalViewClass && [view isKindOfClass:sStatusBarWifiSignalViewClass]) {
         if (![sTrackedWifiViews containsObject:view]) {
             NSNumber *naturalX = objc_getAssociatedObject(view, kOITSWifiNaturalXKey);
@@ -224,7 +179,6 @@ static BOOL OITSClassNameLooksLikeCellularSignalView(UIView *view) {
 
 static void OITSFindCellularViews(UIView *view, NSUInteger depth) {
     if (!view || depth > kOITSMaxTraverseDepth) return;
-    if (OITSViewIsInsideExcludedMirrorContext(view)) return;
     if (OITSClassNameLooksLikeCellularSignalView(view)) {
         if (![sTrackedCellularViews containsObject:view]) {
             NSNumber *naturalX = objc_getAssociatedObject(view, kOITSCellularNaturalXKey);
@@ -242,7 +196,6 @@ static void OITSFindCellularViews(UIView *view, NSUInteger depth) {
 }
 
 static void OITSClassifyCarrierAndNetworkChildren(UIView *foregroundView, CGFloat screenCenterX) {
-    if (OITSViewIsInsideExcludedMirrorContext(foregroundView)) return;
     NSMutableArray<UIView *> *leftoverStringViews = [NSMutableArray array];
     for (UIView *subview in foregroundView.subviews) {
         if (!sStatusBarStringViewClass || ![subview isKindOfClass:sStatusBarStringViewClass]) continue;
@@ -277,7 +230,6 @@ static void OITSClassifyCarrierAndNetworkChildren(UIView *foregroundView, CGFloa
 
 static void OITSWalkForForegroundViews(UIView *view, CGFloat screenCenterX, NSUInteger depth) {
     if (!view || depth > kOITSMaxTraverseDepth) return;
-    if (OITSViewIsInsideExcludedMirrorContext(view)) return;
     static Class foregroundViewClass;
     if (!foregroundViewClass) foregroundViewClass = NSClassFromString(@"_UIStatusBarForegroundView");
     if (foregroundViewClass && [view isKindOfClass:foregroundViewClass]) {
@@ -386,67 +338,37 @@ static void OITSDiscoverAllTargets(void) {
     if (sClockRepositionEnabled) {
         for (UIView *view in sTrackedClockViews) {
             if (!view.window) continue;
-            if (sClockHidden) {
-                if (!view.hidden) view.hidden = YES;
-            } else {
-                if (view.hidden) view.hidden = NO;
-                OITSReapplyTransform(view, kOITSClockNaturalXKey, sClockLeadingOffset);
-            }
+            OITSReapplyTransform(view, kOITSClockNaturalXKey, sClockLeadingOffset);
         }
     }
     if (sBatteryRepositionEnabled) {
         for (UIView *view in sTrackedBatteryViews) {
             if (!view.window) continue;
-            if (sBatteryHidden) {
-                if (!view.hidden) view.hidden = YES;
-            } else {
-                if (view.hidden) view.hidden = NO;
-                OITSReapplyTransform(view, kOITSBatteryNaturalXKey, sBatteryLeadingOffset);
-            }
+            OITSReapplyTransform(view, kOITSBatteryNaturalXKey, sBatteryLeadingOffset);
         }
     }
     if (sWifiRepositionEnabled) {
         for (UIView *view in sTrackedWifiViews) {
             if (!view.window) continue;
-            if (sWifiHidden) {
-                if (!view.hidden) view.hidden = YES;
-            } else {
-                if (view.hidden) view.hidden = NO;
-                OITSReapplyTransform(view, kOITSWifiNaturalXKey, sWifiLeadingOffset);
-            }
+            OITSReapplyTransform(view, kOITSWifiNaturalXKey, sWifiLeadingOffset);
         }
     }
     if (sCellularRepositionEnabled) {
         for (UIView *view in sTrackedCellularViews) {
             if (!view.window) continue;
-            if (sCellularHidden) {
-                if (!view.hidden) view.hidden = YES;
-            } else {
-                if (view.hidden) view.hidden = NO;
-                OITSReapplyTransform(view, kOITSCellularNaturalXKey, sCellularLeadingOffset);
-            }
+            OITSReapplyTransform(view, kOITSCellularNaturalXKey, sCellularLeadingOffset);
         }
     }
     if (sCarrierTextRepositionEnabled) {
         for (UIView *view in sTrackedCarrierTextViews) {
             if (!view.window) continue;
-            if (sCarrierTextHidden) {
-                if (!view.hidden) view.hidden = YES;
-            } else {
-                if (view.hidden) view.hidden = NO;
-                OITSReapplyTransform(view, kOITSCarrierTextNaturalXKey, sCarrierTextLeadingOffset);
-            }
+            OITSReapplyTransform(view, kOITSCarrierTextNaturalXKey, sCarrierTextLeadingOffset);
         }
     }
     if (sNetworkTypeRepositionEnabled) {
         for (UIView *view in sTrackedNetworkTypeViews) {
             if (!view.window) continue;
-            if (sNetworkTypeHidden) {
-                if (!view.hidden) view.hidden = YES;
-            } else {
-                if (view.hidden) view.hidden = NO;
-                OITSReapplyTransform(view, kOITSNetworkTypeNaturalXKey, sNetworkTypeLeadingOffset);
-            }
+            OITSReapplyTransform(view, kOITSNetworkTypeNaturalXKey, sNetworkTypeLeadingOffset);
         }
     }
 }
@@ -528,12 +450,6 @@ static void OITSReloadPreferences(void) {
     sCellularLeadingOffset = [sOITSPreferences floatForKey:@"CellularSignalLeadingOffset" default:6.0];
     sCarrierTextLeadingOffset = [sOITSPreferences floatForKey:@"CarrierTextLeadingOffset" default:28.0];
     sNetworkTypeLeadingOffset = [sOITSPreferences floatForKey:@"NetworkTypeLeadingOffset" default:100.0];
-    sClockHidden = [sOITSPreferences boolForKey:@"ClockHidden" default:NO];
-    sBatteryHidden = [sOITSPreferences boolForKey:@"BatteryHidden" default:NO];
-    sWifiHidden = [sOITSPreferences boolForKey:@"WifiSignalHidden" default:NO];
-    sCellularHidden = [sOITSPreferences boolForKey:@"CellularSignalHidden" default:NO];
-    sCarrierTextHidden = [sOITSPreferences boolForKey:@"CarrierTextHidden" default:NO];
-    sNetworkTypeHidden = [sOITSPreferences boolForKey:@"NetworkTypeHidden" default:NO];
     OITSUpdateEnforcerState();
 }
 
@@ -587,7 +503,7 @@ static void OITSReloadPreferences(void) {
 %hook _UIStatusBarStringView
 
 - (void)setFrame:(CGRect)frame {
-    if (!sClockRepositionEnabled || !sSpringBoardIsReadyForWindowAccess || OITSViewIsInsideExcludedMirrorContext(self)) {
+    if (!sClockRepositionEnabled || !sSpringBoardIsReadyForWindowAccess) {
         %orig(frame);
         return;
     }
@@ -621,7 +537,7 @@ static void OITSReloadPreferences(void) {
 %hook _UIStaticBatteryView
 
 - (void)setFrame:(CGRect)frame {
-    if (!sBatteryRepositionEnabled || !sSpringBoardIsReadyForWindowAccess || OITSViewIsInsideExcludedMirrorContext(self)) {
+    if (!sBatteryRepositionEnabled || !sSpringBoardIsReadyForWindowAccess) {
         %orig(frame);
         return;
     }
@@ -640,7 +556,7 @@ static void OITSReloadPreferences(void) {
 %hook _UIStatusBarWifiSignalView
 
 - (void)setFrame:(CGRect)frame {
-    if (!sWifiRepositionEnabled || !sSpringBoardIsReadyForWindowAccess || OITSViewIsInsideExcludedMirrorContext(self)) {
+    if (!sWifiRepositionEnabled || !sSpringBoardIsReadyForWindowAccess) {
         %orig(frame);
         return;
     }
@@ -670,7 +586,7 @@ static void OITSReloadPreferences(void) {
 %hook _UIStatusBarCellularSignalView
 
 - (void)setFrame:(CGRect)frame {
-    if (!sCellularRepositionEnabled || !sSpringBoardIsReadyForWindowAccess || OITSViewIsInsideExcludedMirrorContext(self)) {
+    if (!sCellularRepositionEnabled || !sSpringBoardIsReadyForWindowAccess) {
         %orig(frame);
         return;
     }
@@ -689,7 +605,7 @@ static void OITSReloadPreferences(void) {
 %ctor {
     if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
 
-    OITSDebugLog(@"=== ctor (App Switcher scoping guard) ===");
+    OITSDebugLog(@"=== ctor (restored known-good: clock/battery/wifi/cellular/carrier/network) ===");
     OITSReloadPreferences();
 
     OITObserveDarwinNotification(kOITSPrefsChangedNotification, ^{
