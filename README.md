@@ -1,232 +1,27 @@
-#  OITUI (OrderInTheUserInterface)
+# OITUI
 
-> **Bringing the modern iOS experience to legacy jailbroken devices.**
+OITUI, or Order In The User Interface, is the name of my current project. OITUI is made up of multiple tweaks like OITS, OITI, and possibly more to come. The idea of OITUI is essentially to make your iPhone (Currently iOS 16 only) look and feel as modern as possible
 
-OITUI (**OrderInTheUserExperience**) is an open-source ecosystem dedicated to recreating the polish, elegance, and responsiveness of modern iOS on older, jailbroken iPhones.
 
-This project is **not** a theme.
+# OITS
 
-It is **not** a skin.
+OITS, or Order In The Status Bar, is a tweak with a pretty specific use case. I have an iPhone 8 Plus, a notchless device, and I use OITI to give it a dynamic island. On notchless devices, the clock is centered instead of on the left of the screen. OITS can currently change the position of every major status bar element along the X axis (Going to add y axis customization soon!). OITS is very much WIP, but it is in a pretty usable state I'd say. Please feel free to give me any recommendations on how to improve and expand OITS!
 
-It is a long-term software engineering effort focused on recreating the **experience** of modern iOS while maintaining excellent performance, stability, and battery life on legacy hardware.
 
----
+# OITI
 
-##  Vision
+OITI, or Order In The Island, is a tweak that gives devices without a Dynamic Island a Dynamic Island. Currently, it is a very basic tweak. Currently, it is just the Dynamic Island itself, but I am hoping that I will soon get around to giving it a lot more QoL, customization, and features. Just like with OITS, feel free to give me any recommendations on how to improve and expand OITI!
 
-Apple's latest versions of iOS introduced an incredible amount of refinement:
 
-* Beautiful Liquid Glass materials
-* Dynamic Island interactions
-* Smooth animations
-* Responsive UI
-* Modern system aesthetics
-* Consistent interaction design
+# OITCore
 
-Unfortunately, many older devices will never officially receive these improvements.
+OITCore is intended to give my tweaks a common "library" of utilities, functionalities, states, and possibly more. It really doesn't do a whole lot right now, but once my tweaks start getting more advanced I plan on using OITCore to store all sorts of different types of information between all the tweaks. Just like with the other two tweaks, give me any recommendations on how to improve and expand OITCore!
 
-**OITUI exists to change that.**
 
-Our goal is simple:
+# Project Status As of September 16, 2026
 
-> **If Apple never ships it to older devices, we'll build it ourselves.**
+OITS is very much still WIP, as stated above. I work on it as much as I can but am pretty limited with time because of school and sports. Although it is still in early development and WIP, it is usable but some things have quite a few issues
 
----
+OITI is, to my knowledge, fully usable in its current state. I plan on adding tons of features, QoL, and other things to it in the future
 
-#  Modules
-
-## OITS (OrderInTheStatus)
-
-Modern status bar enhancements.
-
-Planned features include:
-
-* Modern status indicators
-* Improved layouts
-* Dynamic behavior
-* Pixel-perfect system styling
-
----
-
-## OITI (OrderInTheIsland)
-
-A modern Dynamic Island implementation for unsupported devices.
-
-Inspired by the incredible work of the VisibleIsland project.
-
-Goals include:
-
-* Native-feeling animations
-* Better Live Activities
-* Improved notifications
-* Modern media controls
-* Better compatibility
-* iOS 27 parity
-
----
-
-## OITG (OrderInTheGraphics)
-
-The graphics and rendering engine powering OITUI.
-
-Inspired by the Liquid Glass project.
-
-Responsibilities include:
-
-* Glass rendering
-* Blur materials
-* Metal shaders
-* Reflections
-* Lighting
-* Vibrancy
-* Transparency
-* Graphics optimization
-
-This module powers the visual identity of the entire ecosystem.
-
----
-
-## OITCore
-
-Shared framework used by every OIT module.
-
-Provides:
-
-* Shared utilities
-* Runtime helpers
-* Animation helpers
-* Configuration
-* Preferences
-* Logging
-* Debugging
-* Shared APIs
-
----
-
-#  Goals
-
-* ✅ Modern iOS aesthetics
-* ✅ Native-feeling animations
-* ✅ Excellent battery life
-* ✅ High performance
-* ✅ Stable architecture
-* ✅ Modular design
-* ✅ Long-term maintainability
-* ✅ Pixel-perfect implementation
-* ✅ Respect Apple's design language
-
----
-
-#  Performance First
-
-OITUI is designed with older hardware in mind.
-
-The primary development target is currently an **iPhone 8 Plus**, meaning performance optimizations are considered from the very beginning.
-
-Every optimization should be measurable.
-
-No unnecessary redraws.
-
-No wasted GPU cycles.
-
-No unnecessary CPU work.
-
-Smoothness matters.
-
-Battery life matters.
-
----
-
-#  Design Philosophy
-
-The goal is never:
-
-> "Looks close enough."
-
-The goal is always:
-
-> **"Feels like Apple built it."**
-
-Every detail matters.
-
-* Blur
-* Transparency
-* Corner radius
-* Motion
-* Scale
-* Shadows
-* Lighting
-* Spring animations
-* Timing
-* Consistency
-
-The smallest details create the biggest differences.
-
----
-
-#  Contributing
-
-Contributions are welcome.
-
-Whether you're interested in:
-
-* Objective-C
-* Swift
-* Logos
-* Metal
-* UIKit
-* Reverse engineering
-* Performance optimization
-* Animation
-* Documentation
-* Testing
-
-...there's likely a place for you.
-
-Before opening large pull requests, please open an issue so ideas can be discussed first.
-
----
-
-#  Credits
-
-This project would not exist without the incredible work of the jailbreak community.
-
-Special thanks to the developers of:
-
-* Liquid Glass
-* VisibleIsland
-* Theos
-* ElleKit
-* Procursus
-
-and everyone who continues to keep jailbreaking alive.
-
----
-
-#  Project Status
-
-> **Early Development**
-
-The architecture and long-term roadmap are currently being established.
-
-Expect significant changes as the project evolves.
-
----
-
-#  License
-
-This repository is licensed under the license included in this repository.
-
-Please also respect the licenses of any upstream projects incorporated into OITUI.
-
----
-
-#  The Goal
-
-One day, we'd love for someone to pick up an older jailbroken iPhone, install OITUI, and forget they're using hardware Apple left behind years ago.
-
-That's the standard.
-
-That's the vision.
-
-Welcome to **OrderInTheUserExperience**.
+OITCore isn't used a whole lot inside of OITUI as of right now, simply because the tweaks are pretty early in being developed and don't really have too much of a need for OITCore. BUT, like with the other things, I plan on giving OITCore a lot more features and uses
