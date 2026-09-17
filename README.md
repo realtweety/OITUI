@@ -1,16 +1,16 @@
 # OITUI
 
-OITUI, or Order In The User Interface, is the name of my current project. OITUI is made up of multiple tweaks like OITS, OITI, and possibly more to come. The idea of OITUI is essentially to make your iPhone (Currently iOS 16 only) look and feel as modern as possible
+OITUI, or Order In The User Interface, is the name of my current project. OITUI is made up of multiple components like OITS, OITI, and possibly more to come. The idea of OITUI is essentially to make your iPhone (Currently iOS 16 only) look and feel as modern as possible
 
 
 # OITS
 
-OITS, or Order In The Status Bar, is a tweak with a pretty specific use case. I have an iPhone 8 Plus, a notchless device, and I use OITI to give it a dynamic island. On notchless devices, the clock is centered instead of on the left of the screen. OITS can currently change the position of every major status bar element along the X axis (Going to add y axis customization soon!). OITS is very much WIP, but it is in a pretty usable state I'd say. Please feel free to give me any recommendations on how to improve and expand OITS!
+OITS, or Order In The Status Bar, is a tweak with a pretty specific use case. I have an iPhone 8 Plus, a notchless device, and I use OITI to give it a dynamic island. On notchless devices, the clock is centered instead of on the left of the screen. OITS can currently change the position of every major status bar element along the X axis and you can also fully hide those same major status bar elements completely (Going to add y axis customization soon!). OITS is very much WIP, but it is in a pretty usable state I'd say. Please feel free to give me any recommendations on how to improve and expand OITS!
 
 
 # OITI
 
-OITI, or Order In The Island, is a tweak that gives devices without a Dynamic Island a Dynamic Island. Currently, it is a very basic tweak. Currently, it is just the Dynamic Island itself, but I am hoping that I will soon get around to giving it a lot more QoL, customization, and features. Just like with OITS, feel free to give me any recommendations on how to improve and expand OITI!
+OITI, or Order In The Island, is a tweak that gives devices without a Dynamic Island a Dynamic Island. Currently, it is a very basic tweak. CCurrently, OITI focuses on providing the Dynamic Island itself, along with basic positioning, appearance, and notification customization, but I am hoping that I will soon get around to giving it a lot more QoL, customization, and features. Just like with OITS, feel free to give me any recommendations on how to improve and expand OITI!
 
 
 # OITCore
