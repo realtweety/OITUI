@@ -1,19 +1,14 @@
-# OITUI Feature Ideas
+# OITUI Ideas
 
-Running list of ideas for OITI/OITS/OITG, gathered from brainstorming (including a
-ChatGPT session) and our own planning. Nothing here is committed -- this is a menu,
-not a roadmap. Update freely as priorities shift.
 
-## Up Next (once OITS is functional)
 
-- **Island-native notifications** (Grey's idea): instead of the stock banner, notifications
-  expand the Island to show the app icon, app name, and a shortened message. OITI already
-  hooks `SBBannerWindow` for repositioning (`notificationFix`/`notEnabled`), so this is a
-  content-routing change on top of code we've already proven stable, not new territory.
-  Open questions when we get here: truncation rules, and what happens when a second
+## Up Next (Once OITS Is In A Place I Like)
+
+- **Island-native notifications** Instead of the stock banner, notifications
+  expand the Island to show the app icon, app name, and a shortened message. Open questions when we get here: truncation rules, and what happens when a second
   notification arrives while one is still showing (see "Island Stacks" / queue idea below).
 
-## Good, well-scoped, worth doing eventually
+## Things I Think Would Be Nice
 
 - **Modular architecture**: split `Tweak.xm` into `Modules/Music`, `Modules/Phone`, etc.
   instead of one growing file. Already the direction OITI's headed.
@@ -30,17 +25,17 @@ not a roadmap. Update freely as priorities shift.
   Spotify -> media controls). Natural extension of app-state hooking we already do.
 - **Universal progress bars**: any app/tweak can expose a progress value the Island renders
   generically. Precursor to a real plugin API, but useful even as a single hardcoded case first.
+- **OITUI App**: Make a whole new app specifically for customizing OITUI tweaks like OITI and OITS. I would probably add in some sort of live preview to show the user what their settings would look like before they apply everything. It would essentially just move OITUI tweak customization from Settings to a dedicated app
 
-## OITG integration
+## Liquid Glass In OITI Using OITG
 
-Plan: once OITS is stable, one small contained experiment -- wire `LGSharedGlassView` into
-just the *expanded* Island state (not the always-visible idle pill), and actually measure
+Once OITS is good, one small contained experiment -- wire `LGSharedGlassView` into both the expanded and idle Island state, and actually measure
 cost on the 8 Plus (A11) before deciding how far this goes. `LGSharedGlassView` is already
 generic (reused across liquidass's back button, sliders, switches), so this isn't
 architecturally weird -- but none of that usage is "always on screen," which is a very
 different battery/perf profile than a transient banner or menu.
 
-## Interesting, but not yet -- needs its own design pass first
+## Decent Ideas
 
 - **Clipboard history/pinning/OCR**
 - **Quick calculator / unit / currency conversion**
@@ -60,7 +55,7 @@ different battery/perf profile than a transient banner or menu.
 - **Themes / material profiles / per-app accent colors**
 - **Notification timeline / scrub-back history**
 
-## Explicitly deferred -- different category of project, not "later feature work"
+## Entirely Different Things and Projects
 
 - **Plugin marketplace / public SDK for other tweak devs**: assumes external adoption that
   doesn't exist yet. Build after OITI itself is solid, not before.
