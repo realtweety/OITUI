@@ -15,9 +15,7 @@
 - **Device awareness**: extend the existing per-device offset table (`fixEnabled`) rather
   than treating this as new.
 - **Apple Mode vs Enhanced Mode**: simple toggle, conservative default, low risk.
-- **Developer/debug overlay**: FPS, blur passes, render time. OITG already has real
-  scaffolding for this (`LGProfileBegin`/`LGProfileEnd`, the all-day profiler) -- extend
-  that pattern rather than building new.
+- **Developer/debug overlay**: FPS, render time, active Island state, and other useful runtime diagnostics. Keep it focused on information that can actually be measured on-device.
 - **Crash recovery for an expanded Island state**: small, concrete, testable.
 - **Island Stacks / queue**: multiple things (music, timer, download) don't fight for the
   same space -- swipeable or queued instead of clobbering each other.
@@ -26,14 +24,6 @@
 - **Universal progress bars**: any app/tweak can expose a progress value the Island renders
   generically. Precursor to a real plugin API, but useful even as a single hardcoded case first.
 - **OITUI App**: Make a whole new app specifically for customizing OITUI tweaks like OITI and OITS. I would probably add in some sort of live preview to show the user what their settings would look like before they apply everything. It would essentially just move OITUI tweak customization from Settings to a dedicated app
-
-## Liquid Glass In OITI Using OITG
-
-Once OITS is good, one small contained experiment -- wire `LGSharedGlassView` into both the expanded and idle Island state, and actually measure
-cost on the 8 Plus (A11) before deciding how far this goes. `LGSharedGlassView` is already
-generic (reused across liquidass's back button, sliders, switches), so this isn't
-architecturally weird -- but none of that usage is "always on screen," which is a very
-different battery/perf profile than a transient banner or menu.
 
 ## Decent Ideas
 
@@ -71,9 +61,9 @@ different battery/perf profile than a transient banner or menu.
 ## Notes on hype language
 
 Ignore any "120fps guaranteed / zero dropped frames / immeasurable battery impact" framing
-from brainstorm sessions -- that's marketing language, not an engineering target. OITG's
-renderer does real Metal work per surface; set honest perf budgets once something is
-actually rendering on-device, not before.
+from brainstorm sessions -- that's marketing language, not an engineering target. Any renderer
+that does real rendering or compositing work should have honest performance budgets set only after
+on-device measurement, not before.
 
 ## Confirmed via OITInspector dump (2026-07-16)
 
@@ -98,8 +88,6 @@ actually rendering on-device, not before.
   target) -- clock glyph on one side, signal/battery glyphs on the other.
 - **OITCore**: Not user-facing, so probably skip a "cute" icon -- simple
   geometric mark (hexagon/gear) is enough.
-- **OITG**: TBD -- something conveying glass/refraction/liquid material.
-  Maybe a droplet or refracted-light motif, playing off "Liquid Glass."
 - **OITUI (whole project)**: TBD -- needs to feel like it ties the family
   together once the individual module icons exist. Revisit after the others
   are settled so it doesn't clash.
