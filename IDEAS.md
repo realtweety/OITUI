@@ -26,6 +26,7 @@
 - **Universal progress bars**: any app/tweak can expose a progress value the Island renders
   generically. Precursor to a real plugin API, but useful even as a single hardcoded case first.
 - **OITUI App**: Make a whole new app specifically for customizing OITUI tweaks like OITI and OITS. I would probably add in some sort of live preview to show the user what their settings would look like before they apply everything. It would essentially just move OITUI tweak customization from Settings to a dedicated app
+- **Volume Slider**: It might be a cool idea to try and move the volume slider into the dynamic island somehow, maybe do the same thing with other sliders and indicators and whatnot
 
 ## Liquid Glass In OITI Using OITG
 

@@ -21,6 +21,7 @@ static NSUInteger sSuppressionLogCount = 0;
 
 static BOOL sClockRepositionEnabled = NO;
 static BOOL sPreviousClockEnabled = NO;
+static BOOL sClockHidden = NO;
 static CGFloat sClockLeadingOffset = 16.0;
 static NSHashTable<UIView *> *sTrackedClockViews;
 static Class sStatusBarStringViewClass;
@@ -28,6 +29,7 @@ static const void *kOITSClockNaturalXKey = &kOITSClockNaturalXKey;
 
 static BOOL sBatteryRepositionEnabled = NO;
 static BOOL sPreviousBatteryEnabled = NO;
+static BOOL sBatteryHidden = NO;
 static CGFloat sBatteryLeadingOffset = 384.0;
 static NSHashTable<UIView *> *sTrackedBatteryViews;
 static Class sStaticBatteryViewClass;
@@ -35,6 +37,7 @@ static const void *kOITSBatteryNaturalXKey = &kOITSBatteryNaturalXKey;
 
 static BOOL sWifiRepositionEnabled = NO;
 static BOOL sPreviousWifiEnabled = NO;
+static BOOL sWifiHidden = NO;
 static CGFloat sWifiLeadingOffset = 76.0;
 static NSHashTable<UIView *> *sTrackedWifiViews;
 static Class sStatusBarWifiSignalViewClass;
@@ -42,19 +45,22 @@ static const void *kOITSWifiNaturalXKey = &kOITSWifiNaturalXKey;
 
 static BOOL sCellularRepositionEnabled = NO;
 static BOOL sPreviousCellularEnabled = NO;
+static BOOL sCellularHidden = NO;
 static CGFloat sCellularLeadingOffset = 6.0;
 static NSHashTable<UIView *> *sTrackedCellularViews;
 static const void *kOITSCellularNaturalXKey = &kOITSCellularNaturalXKey;
 
 static BOOL sCarrierTextRepositionEnabled = NO;
 static BOOL sPreviousCarrierTextEnabled = NO;
+static BOOL sCarrierTextHidden = NO;
 static CGFloat sCarrierTextLeadingOffset = 28.0;
 static NSHashTable<UIView *> *sTrackedCarrierTextViews;
 static const void *kOITSCarrierTextNaturalXKey = &kOITSCarrierTextNaturalXKey;
 
 static BOOL sNetworkTypeRepositionEnabled = NO;
 static BOOL sPreviousNetworkTypeEnabled = NO;
-static CGFloat sNetworkTypeLeadingOffset = 100.0;
+static BOOL sNetworkTypeHidden = NO;
+static CGFloat sNetworkTypeLeadingOffset = 80.0;
 static NSHashTable<UIView *> *sTrackedNetworkTypeViews;
 static const void *kOITSNetworkTypeNaturalXKey = &kOITSNetworkTypeNaturalXKey;
 
@@ -101,6 +107,9 @@ static void OITSReapplyTransform(UIView *view, const void *naturalXKey, CGFloat 
     }
 }
 
+// Also clears any hide state -- if reposition gets disabled while a view
+// was hidden, this guarantees it becomes visible again rather than staying
+// invisible with nothing left tracking it.
 static void OITSResetAndForgetTrackedViews(NSHashTable<UIView *> *trackedSet, const void *naturalXKey, NSString *label) {
     if (!trackedSet) return;
     NSUInteger resetCount = 0;
@@ -109,6 +118,7 @@ static void OITSResetAndForgetTrackedViews(NSHashTable<UIView *> *trackedSet, co
             view.transform = CGAffineTransformIdentity;
             resetCount++;
         }
+        if (view.hidden) view.hidden = NO;
         objc_setAssociatedObject(view, naturalXKey, nil, OBJC_ASSOCIATION_RETAIN);
     }
     [trackedSet removeAllObjects];
@@ -338,37 +348,67 @@ static void OITSDiscoverAllTargets(void) {
     if (sClockRepositionEnabled) {
         for (UIView *view in sTrackedClockViews) {
             if (!view.window) continue;
-            OITSReapplyTransform(view, kOITSClockNaturalXKey, sClockLeadingOffset);
+            if (sClockHidden) {
+                if (!view.hidden) view.hidden = YES;
+            } else {
+                if (view.hidden) view.hidden = NO;
+                OITSReapplyTransform(view, kOITSClockNaturalXKey, sClockLeadingOffset);
+            }
         }
     }
     if (sBatteryRepositionEnabled) {
         for (UIView *view in sTrackedBatteryViews) {
             if (!view.window) continue;
-            OITSReapplyTransform(view, kOITSBatteryNaturalXKey, sBatteryLeadingOffset);
+            if (sBatteryHidden) {
+                if (!view.hidden) view.hidden = YES;
+            } else {
+                if (view.hidden) view.hidden = NO;
+                OITSReapplyTransform(view, kOITSBatteryNaturalXKey, sBatteryLeadingOffset);
+            }
         }
     }
     if (sWifiRepositionEnabled) {
         for (UIView *view in sTrackedWifiViews) {
             if (!view.window) continue;
-            OITSReapplyTransform(view, kOITSWifiNaturalXKey, sWifiLeadingOffset);
+            if (sWifiHidden) {
+                if (!view.hidden) view.hidden = YES;
+            } else {
+                if (view.hidden) view.hidden = NO;
+                OITSReapplyTransform(view, kOITSWifiNaturalXKey, sWifiLeadingOffset);
+            }
         }
     }
     if (sCellularRepositionEnabled) {
         for (UIView *view in sTrackedCellularViews) {
             if (!view.window) continue;
-            OITSReapplyTransform(view, kOITSCellularNaturalXKey, sCellularLeadingOffset);
+            if (sCellularHidden) {
+                if (!view.hidden) view.hidden = YES;
+            } else {
+                if (view.hidden) view.hidden = NO;
+                OITSReapplyTransform(view, kOITSCellularNaturalXKey, sCellularLeadingOffset);
+            }
         }
     }
     if (sCarrierTextRepositionEnabled) {
         for (UIView *view in sTrackedCarrierTextViews) {
             if (!view.window) continue;
-            OITSReapplyTransform(view, kOITSCarrierTextNaturalXKey, sCarrierTextLeadingOffset);
+            if (sCarrierTextHidden) {
+                if (!view.hidden) view.hidden = YES;
+            } else {
+                if (view.hidden) view.hidden = NO;
+                OITSReapplyTransform(view, kOITSCarrierTextNaturalXKey, sCarrierTextLeadingOffset);
+            }
         }
     }
     if (sNetworkTypeRepositionEnabled) {
         for (UIView *view in sTrackedNetworkTypeViews) {
             if (!view.window) continue;
-            OITSReapplyTransform(view, kOITSNetworkTypeNaturalXKey, sNetworkTypeLeadingOffset);
+            if (sNetworkTypeHidden) {
+                if (!view.hidden) view.hidden = YES;
+            } else {
+                if (view.hidden) view.hidden = NO;
+                OITSReapplyTransform(view, kOITSNetworkTypeNaturalXKey, sNetworkTypeLeadingOffset);
+            }
         }
     }
 }
@@ -438,18 +478,18 @@ static void OITSReloadPreferences(void) {
     sCellularRepositionEnabled = newCellularEnabled;
     sCarrierTextRepositionEnabled = newCarrierTextEnabled;
     sNetworkTypeRepositionEnabled = newNetworkTypeEnabled;
-    sPreviousClockEnabled = newClockEnabled;
-    sPreviousBatteryEnabled = newBatteryEnabled;
-    sPreviousWifiEnabled = newWifiEnabled;
-    sPreviousCellularEnabled = newCellularEnabled;
-    sPreviousCarrierTextEnabled = newCarrierTextEnabled;
-    sPreviousNetworkTypeEnabled = newNetworkTypeEnabled;
     sClockLeadingOffset = [sOITSPreferences floatForKey:@"ClockLeadingOffset" default:16.0];
     sBatteryLeadingOffset = [sOITSPreferences floatForKey:@"BatteryLeadingOffset" default:384.0];
     sWifiLeadingOffset = [sOITSPreferences floatForKey:@"WifiSignalLeadingOffset" default:76.0];
     sCellularLeadingOffset = [sOITSPreferences floatForKey:@"CellularSignalLeadingOffset" default:6.0];
     sCarrierTextLeadingOffset = [sOITSPreferences floatForKey:@"CarrierTextLeadingOffset" default:28.0];
-    sNetworkTypeLeadingOffset = [sOITSPreferences floatForKey:@"NetworkTypeLeadingOffset" default:100.0];
+    sNetworkTypeLeadingOffset = [sOITSPreferences floatForKey:@"NetworkTypeLeadingOffset" default:80.0];
+    sClockHidden = [sOITSPreferences boolForKey:@"ClockHidden" default:NO];
+    sBatteryHidden = [sOITSPreferences boolForKey:@"BatteryHidden" default:NO];
+    sWifiHidden = [sOITSPreferences boolForKey:@"WifiSignalHidden" default:NO];
+    sCellularHidden = [sOITSPreferences boolForKey:@"CellularSignalHidden" default:NO];
+    sCarrierTextHidden = [sOITSPreferences boolForKey:@"CarrierTextHidden" default:NO];
+    sNetworkTypeHidden = [sOITSPreferences boolForKey:@"NetworkTypeHidden" default:NO];
     OITSUpdateEnforcerState();
 }
 
@@ -605,7 +645,7 @@ static void OITSReloadPreferences(void) {
 %ctor {
     if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
 
-    OITSDebugLog(@"=== ctor (restored known-good: clock/battery/wifi/cellular/carrier/network) ===");
+    OITSDebugLog(@"=== ctor (clock/battery/wifi/cellular/carrier/network + hide) ===");
     OITSReloadPreferences();
 
     OITObserveDarwinNotification(kOITSPrefsChangedNotification, ^{
