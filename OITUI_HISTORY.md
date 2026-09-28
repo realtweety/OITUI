@@ -61,7 +61,7 @@ The architecture is: a recursive discovery pass finds and tags relevant views, a
 A read-only diagnostic tool, not user-facing. It dumps the full live window/view hierarchy (`Latest-Windows.txt`) and a filtered scan of loaded classes matching status-bar/Island/connectivity-related name patterns (`Latest-Classes.txt`) to `/var/mobile/Documents/OITInspector/`. It's triggered either automatically a few seconds after SpringBoard launch, or on demand via a companion CLI tool, `OITDumpTrigger`, which just posts a Darwin notification. It touches nothing but its own log directory. This tool has been the single most important piece of infrastructure for every non-trivial OITS bug described below — nearly every real finding in this document came from reading one of its dumps rather than guessing from source.
 
 ### OITG (Order In The Graphics) — planned, not yet scaffolded
-The intended Liquid Glass rendering engine, a GPL-3.0 fork of liquidass. The plan (per `IDEAS.md`) is a single contained experiment once OITS is stable: wire `LGSharedGlassView` (already generic and reused elsewhere in liquidass, for its back button/sliders/switches) into just the *expanded* Island state — not the always-visible idle pill — and measure real cost on the 8 Plus (A11) before deciding how far to take it. No OITG code exists yet.
+The intended Liquid Glass rendering engine. The plan (per `IDEAS.md`) is a single contained experiment once OITS is stable: wire `LGSharedGlassView` (already generic and reused elsewhere in liquidass, for its back button/sliders/switches) into just the *expanded* Island state — not the always-visible idle pill — and measure real cost on the 8 Plus (A11) before deciding how far to take it. No OITG code exists yet.
 
 ---
 
@@ -71,7 +71,7 @@ Development moved from Windows/WSL Ubuntu to a Mac (macOS 27 beta, Xcode 27 beta
 
 `TARGET` is deliberately pinned to `iphone:clang:16.5:16.0` because Xcode 27 defaults to the iOS 27 SDK, which is wrong for a project targeting iOS 16. A `Preferences.tbd → Preferences` symlink was added to the SDK to make the Preferences framework linkable for the prefs bundles.
 
-Build and deploy is `make package install` from the Mac, over SSH to `root@10.0.0.12` (the iPhone 8 Plus). There's an ongoing, still-unresolved effort to get real on-device lldb debugging working via **XcodeRootDebug** (a jailbreak tweak that runs a root-privileged `debugserver` so Xcode can attach to arbitrary processes, including SpringBoard, not just apps it built). The device has been stuck showing as "Unknown/Offline" in Xcode's device list; cable, USB pairing, Developer Mode, and trust records have all been ruled out. This remains parked, not abandoned — see *Open Items*.
+Build and deploy is `make package install` from the Mac, over SSH to `root@192.168.4.89` (the iPhone 8 Plus). There's an ongoing, still-unresolved effort to get real on-device lldb debugging working via **XcodeRootDebug** (a jailbreak tweak that runs a root-privileged `debugserver` so Xcode can attach to arbitrary processes, including SpringBoard, not just apps it built). The device has been stuck showing as "Unknown/Offline" in Xcode's device list; cable, USB pairing, Developer Mode, and trust records have all been ruled out. This remains parked, not abandoned — see *Open Items*.
 
 For local-LLM-assisted development (brainstorming, pair-programming on Logos/Objective-C), **Qwen2.5-Coder-14B at Q4_K_M** was identified as the best fit for a 16GB-VRAM card (4070 Ti Super), with **Devstral Small 2 24B** as an alternative for harder agentic tasks at the cost of usable context window.
 
@@ -132,7 +132,7 @@ Early status-bar repositioning wrote directly to `view.frame.origin`. This cause
 The established, working way to investigate a live view-hierarchy problem:
 
 ```bash
-ssh root@10.0.0.12
+ssh root@192.168.4.89
 /var/jb/usr/libexec/OITDumpTrigger      # triggers a fresh dump — do this every time, it does not auto-refresh
 cat /var/mobile/Documents/OITInspector/Latest-Windows.txt
 ```
@@ -142,12 +142,6 @@ Always check the timestamp at the top of the dump before trusting its contents �
 For runtime debugging without lldb, flat-file logging to `/tmp/OITSDebug.log` (via `OITSDebugLog`) is the fallback, and has been sufficient to diagnose everything so far, including the crash-loop signature (repeated `=== ctor ===` lines within a short window).
 
 **Working style established over this project:** reason carefully about consequences before editing rather than iterating speculatively; prefer full-file rewrites over patch-style diffs when sharing code; and — critically — when a change produces a crash-loop, revert to the last known-good state immediately and gather evidence (crash logs, debug logs) before attempting a fix a second time, rather than re-reasoning from source code alone.
-
----
-
-## Licensing & Attribution
-
-The repo's root `LICENSE` file is currently MIT. That will need to become a **per-module** scheme once OITG is scaffolded: liquidass (OITG's upstream) is GPL-3.0, which forces OITG itself to be GPL-3.0 regardless of the rest of the repo. OITCore is MIT. OITI and OITS licensing is still to-be-decided. A `CREDITS.md` crediting ethxnn88 and the VisibleIsland project (from which OITI is forked, with written permission) is planned but not yet created — until it exists, that attribution currently lives only in the `control` file description and in-app "Source Code" / social links inside OITIPrefs.
 
 ---
 
