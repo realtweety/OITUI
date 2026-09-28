@@ -33,6 +33,7 @@ static BOOL sBatteryHidden = NO;
 static CGFloat sBatteryLeadingOffset = 384.0;
 static NSHashTable<UIView *> *sTrackedBatteryViews;
 static Class sStaticBatteryViewClass;
+static Class sBatteryViewAltClass;
 static const void *kOITSBatteryNaturalXKey = &kOITSBatteryNaturalXKey;
 
 static BOOL sWifiRepositionEnabled = NO;
@@ -62,6 +63,7 @@ static BOOL sPreviousNetworkTypeEnabled = NO;
 static BOOL sNetworkTypeHidden = NO;
 static CGFloat sNetworkTypeLeadingOffset = 80.0;
 static NSHashTable<UIView *> *sTrackedNetworkTypeViews;
+static Class sCellularNetworkTypeViewClass;
 static const void *kOITSNetworkTypeNaturalXKey = &kOITSNetworkTypeNaturalXKey;
 
 static void OITSDebugLog(NSString *format, ...) {
@@ -85,9 +87,11 @@ static void OITSDebugLog(NSString *format, ...) {
     [handle closeFile];
 }
 
-static CGFloat OITSClampedOffsetForWidth(CGFloat desiredOffset, CGFloat viewWidth) {
-    CGFloat screenWidth = UIScreen.mainScreen.bounds.size.width;
-    CGFloat maxX = MAX(0.0, screenWidth - viewWidth);
+static CGFloat OITSClampedOffsetForWidth(CGFloat desiredOffset, CGFloat viewWidth, CGFloat parentScale) {
+    // desiredOffset here is already a LOCAL-space value (see OITSReapplyTransform) -- the
+    // bound it's clamped against must be the local-space screen width too, not the real one.
+    CGFloat localScreenWidth = UIScreen.mainScreen.bounds.size.width / parentScale;
+    CGFloat maxX = MAX(0.0, localScreenWidth - viewWidth);
     return MAX(0.0, MIN(desiredOffset, maxX));
 }
 
@@ -95,10 +99,20 @@ static void OITSReapplyTransform(UIView *view, const void *naturalXKey, CGFloat 
     NSNumber *naturalX = objc_getAssociatedObject(view, naturalXKey);
     if (!naturalX) return;
     CGFloat screenWidth = UIScreen.mainScreen.bounds.size.width;
-    CGFloat clampedOffset = OITSClampedOffsetForWidth(desiredOffset, view.bounds.size.width);
+    // Some status bar visual providers (e.g. the Split-family ones) lay content out for a
+    // narrower reference width and stretch the whole _UIStatusBarForegroundView back out with
+    // a uniform scale transform to fill the real screen. A child's own frame/transform is
+    // always expressed in ITS superview's bounds space (i.e. pre-stretch), so a desiredOffset
+    // meant as a real on-screen position has to be converted into that local space first --
+    // otherwise it lands at desiredOffset * parentScale on screen, not at desiredOffset.
+    // Under the standard (unscaled) provider parentScale is 1.0, so this is a no-op there.
+    CGFloat parentScale = view.superview.transform.a;
+    if (!isfinite(parentScale) || parentScale < 0.01) parentScale = 1.0;
+    CGFloat localDesiredOffset = desiredOffset / parentScale;
+    CGFloat clampedOffset = OITSClampedOffsetForWidth(localDesiredOffset, view.bounds.size.width, parentScale);
     CGFloat delta = clampedOffset - naturalX.doubleValue;
     if (!isfinite(delta) || fabs(delta) > screenWidth) {
-        OITSDebugLog(@"REFUSED bad delta=%.1f naturalX=%.1f desiredOffset=%.1f", delta, naturalX.doubleValue, desiredOffset);
+        OITSDebugLog(@"REFUSED bad delta=%.1f naturalX=%.1f desiredOffset=%.1f parentScale=%.3f", delta, naturalX.doubleValue, desiredOffset, parentScale);
         return;
     }
     CGFloat currentTx = view.transform.tx;
@@ -125,6 +139,21 @@ static void OITSResetAndForgetTrackedViews(NSHashTable<UIView *> *trackedSet, co
     OITSDebugLog(@"Reset-on-disable: %@ -- reset %lu transform(s), forgot all tracking", label, (unsigned long)resetCount);
 }
 
+// Under some status bar visual providers the clock doesn't render near screen-center, so the
+// usual center check fails to identify it. But when it's the ONLY _UIStatusBarStringView
+// among its own siblings, there's no ambiguity to resolve -- it must be the clock, since
+// carrier text and network type would only ever be candidates when there's more than one.
+static BOOL OITSIsOnlyStringViewSibling(UIView *view) {
+    UIView *superview = view.superview;
+    if (!superview || !sStatusBarStringViewClass) return NO;
+    NSUInteger matchCount = 0;
+    for (UIView *sibling in superview.subviews) {
+        if ([sibling isKindOfClass:sStatusBarStringViewClass]) matchCount++;
+        if (matchCount > 1) return NO;
+    }
+    return matchCount == 1;
+}
+
 static void OITSFindCenteredStringViews(UIView *view, CGFloat screenCenterX, NSUInteger depth) {
     if (!view || depth > kOITSMaxTraverseDepth) return;
     if (sStatusBarStringViewClass && [view isKindOfClass:sStatusBarStringViewClass]) {
@@ -134,7 +163,8 @@ static void OITSFindCenteredStringViews(UIView *view, CGFloat screenCenterX, NSU
                 [sTrackedClockViews addObject:view];
             } else if (CGAffineTransformIsIdentity(view.transform)) {
                 CGFloat centerX = CGRectGetMidX(view.frame);
-                if (fabs(centerX - screenCenterX) <= kOITSCenterToleranceInPoints) {
+                BOOL isNearCenter = fabs(centerX - screenCenterX) <= kOITSCenterToleranceInPoints;
+                if (isNearCenter || OITSIsOnlyStringViewSibling(view)) {
                     objc_setAssociatedObject(view, kOITSClockNaturalXKey, @(view.frame.origin.x), OBJC_ASSOCIATION_RETAIN);
                     [sTrackedClockViews addObject:view];
                 }
@@ -148,7 +178,9 @@ static void OITSFindCenteredStringViews(UIView *view, CGFloat screenCenterX, NSU
 
 static void OITSFindBatteryViews(UIView *view, NSUInteger depth) {
     if (!view || depth > kOITSMaxTraverseDepth) return;
-    if (sStaticBatteryViewClass && [view isKindOfClass:sStaticBatteryViewClass]) {
+    BOOL isBatteryView = (sStaticBatteryViewClass && [view isKindOfClass:sStaticBatteryViewClass]) ||
+                         (sBatteryViewAltClass && [view isKindOfClass:sBatteryViewAltClass]);
+    if (isBatteryView) {
         if (![sTrackedBatteryViews containsObject:view]) {
             NSNumber *naturalX = objc_getAssociatedObject(view, kOITSBatteryNaturalXKey);
             if (naturalX) {
@@ -205,11 +237,32 @@ static void OITSFindCellularViews(UIView *view, NSUInteger depth) {
     }
 }
 
+// Network type ("LTE", "5G", etc.) turns out to always render via this dedicated class, not as
+// a generic leftover string view the way OITSClassifyCarrierAndNetworkChildren below assumed --
+// that assumption was never correct, on any provider, so this replaces it outright.
+static void OITSFindNetworkTypeViews(UIView *view, NSUInteger depth) {
+    if (!view || depth > kOITSMaxTraverseDepth) return;
+    if (sCellularNetworkTypeViewClass && [view isKindOfClass:sCellularNetworkTypeViewClass]) {
+        if (![sTrackedNetworkTypeViews containsObject:view]) {
+            NSNumber *naturalX = objc_getAssociatedObject(view, kOITSNetworkTypeNaturalXKey);
+            if (naturalX) {
+                [sTrackedNetworkTypeViews addObject:view];
+            } else if (CGAffineTransformIsIdentity(view.transform)) {
+                objc_setAssociatedObject(view, kOITSNetworkTypeNaturalXKey, @(view.frame.origin.x), OBJC_ASSOCIATION_RETAIN);
+                [sTrackedNetworkTypeViews addObject:view];
+            }
+        }
+    }
+    for (UIView *subview in view.subviews) {
+        OITSFindNetworkTypeViews(subview, depth + 1);
+    }
+}
+
 static void OITSClassifyCarrierAndNetworkChildren(UIView *foregroundView, CGFloat screenCenterX) {
     NSMutableArray<UIView *> *leftoverStringViews = [NSMutableArray array];
     for (UIView *subview in foregroundView.subviews) {
         if (!sStatusBarStringViewClass || ![subview isKindOfClass:sStatusBarStringViewClass]) continue;
-        if ([sTrackedCarrierTextViews containsObject:subview] || [sTrackedNetworkTypeViews containsObject:subview]) continue;
+        if ([sTrackedCarrierTextViews containsObject:subview]) continue;
         if ([sTrackedClockViews containsObject:subview]) continue;
         CGFloat centerX = CGRectGetMidX(subview.frame);
         if (fabs(centerX - screenCenterX) <= kOITSCenterToleranceInPoints) continue;
@@ -230,11 +283,6 @@ static void OITSClassifyCarrierAndNetworkChildren(UIView *foregroundView, CGFloa
         UIView *view = leftoverStringViews[0];
         objc_setAssociatedObject(view, kOITSCarrierTextNaturalXKey, @(view.frame.origin.x), OBJC_ASSOCIATION_RETAIN);
         [sTrackedCarrierTextViews addObject:view];
-    }
-    if (leftoverStringViews.count > 1 && sNetworkTypeRepositionEnabled) {
-        UIView *view = leftoverStringViews[1];
-        objc_setAssociatedObject(view, kOITSNetworkTypeNaturalXKey, @(view.frame.origin.x), OBJC_ASSOCIATION_RETAIN);
-        [sTrackedNetworkTypeViews addObject:view];
     }
 }
 
@@ -260,7 +308,9 @@ static void OITSDiscoverAllTargets(void) {
     if (!sTrackedNetworkTypeViews) sTrackedNetworkTypeViews = [NSHashTable weakObjectsHashTable];
     if (!sStatusBarStringViewClass) sStatusBarStringViewClass = NSClassFromString(@"_UIStatusBarStringView");
     if (!sStaticBatteryViewClass) sStaticBatteryViewClass = NSClassFromString(@"_UIStaticBatteryView");
+    if (!sBatteryViewAltClass) sBatteryViewAltClass = NSClassFromString(@"_UIBatteryView");
     if (!sStatusBarWifiSignalViewClass) sStatusBarWifiSignalViewClass = NSClassFromString(@"_UIStatusBarWifiSignalView");
+    if (!sCellularNetworkTypeViewClass) sCellularNetworkTypeViewClass = NSClassFromString(@"_UIStatusBarCellularNetworkTypeView");
 
     NSMutableOrderedSet<UIWindow *> *windows = [NSMutableOrderedSet orderedSet];
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -278,7 +328,8 @@ static void OITSDiscoverAllTargets(void) {
         if (sBatteryRepositionEnabled) OITSFindBatteryViews(window, 0);
         if (sWifiRepositionEnabled) OITSFindWifiViews(window, 0);
         if (sCellularRepositionEnabled) OITSFindCellularViews(window, 0);
-        if (sCarrierTextRepositionEnabled || sNetworkTypeRepositionEnabled) {
+        if (sNetworkTypeRepositionEnabled) OITSFindNetworkTypeViews(window, 0);
+        if (sCarrierTextRepositionEnabled) {
             OITSWalkForForegroundViews(window, screenCenterX, 0);
         }
     }
@@ -512,6 +563,12 @@ static void OITSReloadPreferences(void) {
 @interface _UIStatusBarCellularSignalView : UIView
 @end
 
+@interface _UIBatteryView : UIView
+@end
+
+@interface _UIStatusBarCellularNetworkTypeView : UIView
+@end
+
 %hook _UIStatusBarForegroundView
 
 - (void)layoutSubviews {
@@ -521,7 +578,9 @@ static void OITSReloadPreferences(void) {
         !sCellularRepositionEnabled && !sCarrierTextRepositionEnabled && !sNetworkTypeRepositionEnabled) return;
     if (!sStatusBarStringViewClass) sStatusBarStringViewClass = NSClassFromString(@"_UIStatusBarStringView");
     if (!sStaticBatteryViewClass) sStaticBatteryViewClass = NSClassFromString(@"_UIStaticBatteryView");
+    if (!sBatteryViewAltClass) sBatteryViewAltClass = NSClassFromString(@"_UIBatteryView");
     if (!sStatusBarWifiSignalViewClass) sStatusBarWifiSignalViewClass = NSClassFromString(@"_UIStatusBarWifiSignalView");
+    if (!sCellularNetworkTypeViewClass) sCellularNetworkTypeViewClass = NSClassFromString(@"_UIStatusBarCellularNetworkTypeView");
     if (!sTrackedClockViews) sTrackedClockViews = [NSHashTable weakObjectsHashTable];
     if (!sTrackedBatteryViews) sTrackedBatteryViews = [NSHashTable weakObjectsHashTable];
     if (!sTrackedWifiViews) sTrackedWifiViews = [NSHashTable weakObjectsHashTable];
@@ -533,7 +592,8 @@ static void OITSReloadPreferences(void) {
     if (sBatteryRepositionEnabled) OITSFindBatteryViews(self, 0);
     if (sWifiRepositionEnabled) OITSFindWifiViews(self, 0);
     if (sCellularRepositionEnabled) OITSFindCellularViews(self, 0);
-    if (sCarrierTextRepositionEnabled || sNetworkTypeRepositionEnabled) {
+    if (sNetworkTypeRepositionEnabled) OITSFindNetworkTypeViews(self, 0);
+    if (sCarrierTextRepositionEnabled) {
         OITSClassifyCarrierAndNetworkChildren(self, screenCenterX);
     }
 }
@@ -554,7 +614,8 @@ static void OITSReloadPreferences(void) {
 
     CGFloat screenCenterX = UIScreen.mainScreen.bounds.size.width * 0.5;
     CGFloat incomingCenterX = CGRectGetMidX(frame);
-    if (fabs(incomingCenterX - screenCenterX) <= kOITSCenterToleranceInPoints) {
+    BOOL isNearCenter = fabs(incomingCenterX - screenCenterX) <= kOITSCenterToleranceInPoints;
+    if (isNearCenter || OITSIsOnlyStringViewSibling(self)) {
         if (!sTrackedClockViews) sTrackedClockViews = [NSHashTable weakObjectsHashTable];
         [sTrackedClockViews addObject:self];
         objc_setAssociatedObject(self, kOITSClockNaturalXKey, @(frame.origin.x), OBJC_ASSOCIATION_RETAIN);
@@ -638,6 +699,44 @@ static void OITSReloadPreferences(void) {
     if (!sTrackedCellularViews) sTrackedCellularViews = [NSHashTable weakObjectsHashTable];
     [sTrackedCellularViews addObject:self];
     objc_setAssociatedObject(self, kOITSCellularNaturalXKey, @(frame.origin.x), OBJC_ASSOCIATION_RETAIN);
+}
+
+%end
+
+%hook _UIBatteryView
+
+- (void)setFrame:(CGRect)frame {
+    if (!sBatteryRepositionEnabled || !sSpringBoardIsReadyForWindowAccess) {
+        %orig(frame);
+        return;
+    }
+    if (!CGAffineTransformIsIdentity(self.transform)) {
+        self.transform = CGAffineTransformIdentity;
+    }
+    %orig(frame);
+
+    if (!sTrackedBatteryViews) sTrackedBatteryViews = [NSHashTable weakObjectsHashTable];
+    [sTrackedBatteryViews addObject:self];
+    objc_setAssociatedObject(self, kOITSBatteryNaturalXKey, @(frame.origin.x), OBJC_ASSOCIATION_RETAIN);
+}
+
+%end
+
+%hook _UIStatusBarCellularNetworkTypeView
+
+- (void)setFrame:(CGRect)frame {
+    if (!sNetworkTypeRepositionEnabled || !sSpringBoardIsReadyForWindowAccess) {
+        %orig(frame);
+        return;
+    }
+    if (!CGAffineTransformIsIdentity(self.transform)) {
+        self.transform = CGAffineTransformIdentity;
+    }
+    %orig(frame);
+
+    if (!sTrackedNetworkTypeViews) sTrackedNetworkTypeViews = [NSHashTable weakObjectsHashTable];
+    [sTrackedNetworkTypeViews addObject:self];
+    objc_setAssociatedObject(self, kOITSNetworkTypeNaturalXKey, @(frame.origin.x), OBJC_ASSOCIATION_RETAIN);
 }
 
 %end
