@@ -1,7 +1,5 @@
-#import <Preferences/PSListController.h>
-#import <Preferences/PSSpecifier.h>
-#import <Foundation/Foundation.h>
+#import "OITIBaseListController.h"
 
-@interface OITIColorListController : PSListController
+@interface OITIColorListController : OITIBaseListController
 
 @end

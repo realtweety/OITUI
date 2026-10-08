@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import "OITIRootListController.h"
+#import "../OITIDeviceProfiles.h"
 #import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
 
@@ -19,46 +20,8 @@ static NSString * const kOITIGestaltBackupBreadcrumbPath = @"/var/mobile/Library
 
 @implementation OITIRootListController
 
-- (NSArray *)specifiers {
-	if (!_specifiers) {
-		_specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
-	}
-
-	return _specifiers;
-}
-
-- (void)viewDidLoad {
-    [super viewDidLoad];
-
-    UIBarButtonItem *respring = [[UIBarButtonItem alloc] initWithTitle:@"Respring" style:UIBarButtonItemStylePlain target:self action:@selector(respringAsk:)];
-    self.navigationItem.rightBarButtonItem = respring;
-}
-
-- (void)respringAsk:(id)sender {
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"Respring"
-                         message:@"You are about to respring."
-                  preferredStyle:UIAlertControllerStyleAlert];
-
-    UIAlertAction *defaultAction = [UIAlertAction
-        actionWithTitle:@"Cancel"
-                  style:UIAlertActionStyleCancel
-                handler:nil];
-
-    UIAlertAction *yes = [UIAlertAction
-        actionWithTitle:@"Respring"
-                  style:UIAlertActionStyleDestructive
-                handler:^(UIAlertAction *action) {
-                    [self respring];
-                }];
-
-    [alert addAction:defaultAction];
-    [alert addAction:yes];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)respring {
-    OITRequestRespring();
+- (NSString *)oiti_plistName {
+    return @"Root";
 }
 
 // MARK: - MobileGestalt hardware-identity spoof (backup-safe)
@@ -147,9 +110,9 @@ static NSString * const kOITIGestaltBackupBreadcrumbPath = @"/var/mobile/Library
     [self oiti_writeBackupBreadcrumb];
 }
 
-+ (void)fixUnsupported {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Device not supported"
-                                                                   message:@"This device is not officially supported by OITI, meaning there are no 'perfect' offsets found for your device as of now. You can enable this option and use the built-in estimated offsets, or disable it and use custom offsets."
++ (void)showFixNoticeWithTitle:(NSString *)title message:(NSString *)message {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                   message:message
                                                             preferredStyle:UIAlertControllerStyleAlert];
 
     UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"OK"
@@ -171,10 +134,6 @@ static NSString * const kOITIGestaltBackupBreadcrumbPath = @"/var/mobile/Library
         if (keyWindow) break;
     }
     [keyWindow.rootViewController presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)savePos {
-    [self.view endEditing:YES];
 }
 
 - (void)sourceCode {
@@ -207,11 +166,10 @@ static NSString * const kOITIGestaltBackupBreadcrumbPath = @"/var/mobile/Library
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
     if (section == [tableView numberOfSections] - 1) {
         return 50;
-    } if (section == [tableView numberOfSections] - 5) {
+    } else if (section == [tableView numberOfSections] - 5) {
         return 45;
-    } else {
-        return 0;
     }
+    return 0;
 }
 
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
@@ -227,11 +185,15 @@ static NSString * const kOITIGestaltBackupBreadcrumbPath = @"/var/mobile/Library
     } else if ([[specifier propertyForKey:@"key"] isEqualToString:@"fixEnabled"]) {
         BOOL switchValue = [value boolValue];
         if (switchValue) {
-            NSString *deviceModel = [OITDeviceInfo machineIdentifier];
-            NSArray *supportedModels = @[@"iPhone10,3", @"iPhone10,6", @"iPhone11,2", @"iPhone12,3", @"iPhone11,6", @"iPhone12,5", @"iPhone11,8", @"iPhone12,1", @"iPhone14,2", @"iPhone14,5", @"iPhone14,7", @"iPhone14,3", @"iPhone14,4"];
-            if ([supportedModels containsObject:deviceModel]) {
-            } else {
-                [OITIRootListController fixUnsupported];
+            // One shared table (OITIDeviceProfiles.h) decides what "supported" means, so this can never
+            // disagree with the offsets the tweak actually uses.
+            const OITIDeviceProfile *profile = OITIProfileForModel([OITDeviceInfo machineIdentifier]);
+            if (!profile) {
+                [OITIRootListController showFixNoticeWithTitle:@"No built-in offsets"
+                                                       message:@"OITI has no built-in offsets for this device, so this option will have no effect. Turn it off and use the custom position and banner offsets instead."];
+            } else if (!profile->verified) {
+                [OITIRootListController showFixNoticeWithTitle:@"Estimated offsets"
+                                                       message:@"The built-in offsets for this device are estimates and may not be pixel-perfect. If something looks off, turn this option off and use custom offsets."];
             }
         }
     }
