@@ -10,8 +10,11 @@
 //
 // Log file:      /tmp/OITSDebug.log
 // Dump trigger:  touch /tmp/OITSDump.trigger   (or Darwin notification com.wilburt.oits/DumpState)
-// Prefs keys:    DiagnosticsEnabled (bool, default YES), DiagnosticsLevel (0-2, default 2)
+// Prefs keys:    DiagnosticsEnabled (bool, default YES), DiagnosticsLevel (0-2, default 0)
 //   level 0 = legacy logs only, 1 = events/state changes/heartbeat, 2 = + every hooked call
+//   Default is 0: a normal install writes only the few legacy/session/PREF lines and the MAINSTALL warning, does no
+//   visibility watchdog, heartbeat, baseline dump or system-notification tap. For development raise it:
+//     defaults write com.wilburt.oits.prefs DiagnosticsLevel -int 2     (then sbreload)
 //
 // Tags: SESSION PREF GEN REFUSED APPLY STATE VIS TRACK SKIP DEAD MOVE REMOVE SYS-SET SETFRAME
 //       LAYOUT SUBVIEW DISCOVER HB WARN TICKGAP TICKSLOW MAINSTALL ENFORCER DUMP NOTIF DARWIN
@@ -104,7 +107,7 @@ static const void *kOITSNetworkTypeNaturalXKey = &kOITSNetworkTypeNaturalXKey;
 
 // ---- Diagnostics state ----
 static BOOL sOITSDiagEnabled = YES;
-static NSInteger sOITSDiagLevel = 2;
+static NSInteger sOITSDiagLevel = 0;
 static BOOL sOITSInternalChange = NO;          // YES only while OITS itself is writing hidden/transform
 static NSUInteger sOITSCurrentTick = 0;
 static NSUInteger sOITSLogSeq = 0;
@@ -1205,7 +1208,7 @@ static void OITSReloadPreferences(void) {
     BOOL newNetworkTypeEnabled = [sOITSPreferences boolForKey:@"NetworkTypeRepositionEnabled" default:NO];
 
     sOITSDiagEnabled = [sOITSPreferences boolForKey:@"DiagnosticsEnabled" default:YES];
-    NSInteger level = (NSInteger)[sOITSPreferences floatForKey:@"DiagnosticsLevel" default:2.0];
+    NSInteger level = (NSInteger)[sOITSPreferences floatForKey:@"DiagnosticsLevel" default:0.0];
     sOITSDiagLevel = MAX(0, MIN(2, level));
 
     if (sPreviousClockEnabled && !newClockEnabled) {

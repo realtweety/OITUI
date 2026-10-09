@@ -96,7 +96,7 @@ static BOOL OITLogPathIsTweakImage(const char *path) {
         _name = [name copy] ?: @"log";
         _path = [path copy];
         _enabled = YES;
-        _level = 2;
+        _level = 0;   // quiet by default: callers raise it from a preference
         _maxFileBytes = 6ull * 1024ull * 1024ull;
         _lock = OS_UNFAIR_LOCK_INIT;
         _budgets = [NSMutableDictionary dictionary];
