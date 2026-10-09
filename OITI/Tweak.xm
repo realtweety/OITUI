@@ -20,13 +20,16 @@
 // Clear safe mode: rm /var/mobile/Library/Preferences/OITISafeMode.plist  (or notification
 //                com.wilburt.oiti/ClearSafeMode), then respring
 // Prefs keys (domain com.wilburt.oiti.prefs, set with `defaults write`, no UI yet):
-//   DiagnosticsEnabled (bool, default YES)      DiagnosticsLevel (0-2, default 1)
+//   DiagnosticsEnabled (bool, default YES)      DiagnosticsLevel (0-2, default 0)
 //   SafeModeGuardEnabled (bool, default YES)    SafeModeMaxLaunches (int, default 5)
 //   SafeModeWindowSeconds (int, default 120)    SafeModeStableSeconds (int, default 45)
 //   SafeModeRestoreGestalt (bool, default NO)   -- on a trip, also run the OITIRestoreGestalt helper
 //
 // Log tags: SESSION PREF GUARD SAFE CHECK ISLAND LAYOUT CURTAIN GAINMAP COLOR TOUCHPASS BANNER DUMP CLASSQ
 // Levels:   0 = unconditional lines only, 1 = events and state changes, 2 = adds rate-limited per-call lines.
+// Default is 0, so a normal install writes only the SESSION, GUARD, SAFE and CHECK lines (about a dozen per boot,
+// including every warning), runs no polling timer and tracks no windows for dumps. For development raise it:
+//   defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1     (then sbreload)
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
@@ -42,7 +45,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-step2-2026-10-08-a";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-09-a";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -452,25 +455,42 @@ static int64_t OITITriggerFileMtimeNs(void) {
     return (int64_t)st.st_mtimespec.tv_sec * 1000000000ll + (int64_t)st.st_mtimespec.tv_nsec;
 }
 
-// Polls the trigger file once a second. Detects by modification time, never deletes (/tmp is sticky).
-static void OITIStartDumpTrigger(void) {
-    sLastTriggerMtimeNs = OITITriggerFileMtimeNs();
-    sDumpTriggerTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-    dispatch_source_set_timer(sDumpTriggerTimer,
-                              dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
-                              NSEC_PER_SEC, NSEC_PER_SEC / 2);
-    dispatch_source_set_event_handler(sDumpTriggerTimer, ^{
-        if (!sLog.enabled) return;
-        int64_t mtime = OITITriggerFileMtimeNs();
-        if (mtime != 0 && mtime != sLastTriggerMtimeNs) {
-            sLastTriggerMtimeNs = mtime;
-            OITIRunDump(@"trigger-file");
-        }
-    });
-    dispatch_resume(sDumpTriggerTimer);
+// Polls the trigger file once a second, but only while diagnostics are on (DiagnosticsLevel >= 1), so a normal
+// install runs no timer at all. Detects by modification time, never deletes (/tmp is sticky).
+static void OITIUpdateDumpTrigger(void) {
+    BOOL wanted = sLog.enabled && sLog.level >= 1;
+    if (wanted && !sDumpTriggerTimer) {
+        sLastTriggerMtimeNs = OITITriggerFileMtimeNs();
+        sDumpTriggerTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        dispatch_source_set_timer(sDumpTriggerTimer,
+                                  dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
+                                  NSEC_PER_SEC, NSEC_PER_SEC / 2);
+        dispatch_source_set_event_handler(sDumpTriggerTimer, ^{
+            if (!sLog.enabled || sLog.level < 1) return;
+            int64_t mtime = OITITriggerFileMtimeNs();
+            if (mtime != 0 && mtime != sLastTriggerMtimeNs) {
+                sLastTriggerMtimeNs = mtime;
+                OITIRunDump(@"trigger-file");
+            }
+        });
+        dispatch_resume(sDumpTriggerTimer);
+        [sLog logLevel:1 tag:@"DUMP" format:@"trigger polling started (touch %@)", kOITIDumpTriggerPath];
+    } else if (!wanted && sDumpTriggerTimer) {
+        dispatch_source_cancel(sDumpTriggerTimer);
+        sDumpTriggerTimer = nil;
+    }
+}
 
+// The Darwin notification is passive (no timer), so it is registered once at launch.
+static void OITIObserveDumpNotification(void) {
     OITObserveDarwinNotification(kOITIDumpNotification, ^{
-        dispatch_async(dispatch_get_main_queue(), ^{ OITIRunDump(@"darwin-notification"); });
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (sLog.enabled && sLog.level >= 1) {
+                OITIRunDump(@"darwin-notification");
+            } else {
+                [sLog logTag:@"DUMP" format:@"dump request ignored: DiagnosticsLevel is 0 (set it to 1 or 2 and respring)"];
+            }
+        });
     });
 }
 
@@ -479,7 +499,7 @@ static void OITIScheduleAutoDump(void) {
     if (sAutoDumpScheduled) return;
     sAutoDumpScheduled = YES;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        OITIRunDump(@"auto-baseline");
+        if (sLog.enabled && sLog.level >= 1) OITIRunDump(@"auto-baseline");
     });
 }
 
@@ -568,6 +588,12 @@ static BOOL OITIEvaluateLoopGuard(void) {
 // MARK: Startup self-check (MobileGestalt spoof)
 // =============================================================================================
 
+// 2556 is the spoofed value. iOS 16 only ever runs on one model that natively reports it (iPhone 14 Pro).
+// Keep in sync with OITIMachineHasNativeIsland in OITIRootListController.m.
+static BOOL OITIMachineHasNativeIsland(NSString *machine) {
+    return [machine isEqualToString:@"iPhone15,2"];
+}
+
 static void OITIRunStartupSelfCheck(void) {
     NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:kOITIGestaltPlistPath];
     if (!plist) {
@@ -577,22 +603,47 @@ static void OITIRunStartupSelfCheck(void) {
     id value = ((NSDictionary *)((NSDictionary *)plist[kOITIGestaltCacheExtraKey])[kOITIGestaltNestedKey])[kOITIGestaltLeafKey];
     BOOL isSpoofed = [value isKindOfClass:[NSNumber class]] && [value integerValue] == 2556;
 
+    NSString *machine = [OITDeviceInfo machineIdentifier];
+    BOOL nativeIsland = OITIMachineHasNativeIsland(machine);
+
     NSDictionary *breadcrumb = [NSDictionary dictionaryWithContentsOfFile:kOITIGestaltBackupBreadcrumbPath];
     BOOL haveBreadcrumb = [breadcrumb[@"BackupCaptured"] boolValue];
+    BOOL originalPresent = [breadcrumb[@"OriginalValuePresent"] boolValue];
+    id originalValue = breadcrumb[@"OriginalValue"];
+    BOOL backupSuspect = [breadcrumb[@"CaptureSuspect"] boolValue];
+    // The backup says the "original" value was the spoof value, on hardware that is not Island hardware: it was
+    // captured while the spoof was already active, so restoring it can never remove the spoof.
+    BOOL backupHoldsSpoofValue = haveBreadcrumb && originalPresent &&
+        [originalValue isKindOfClass:[NSNumber class]] && [originalValue integerValue] == 2556 && !nativeIsland;
 
-    [sLog logTag:@"CHECK" format:@"ArtworkDeviceSubType in cache=%@ islandEnabled=%d breadcrumb=%d (originalPresent=%@ original=%@)",
-     value ?: @"(absent)", islandEnabled, haveBreadcrumb, breadcrumb[@"OriginalValuePresent"] ?: @"?",
-     breadcrumb[@"OriginalValue"] ?: @"(none)"];
+    [sLog logTag:@"CHECK" format:@"ArtworkDeviceSubType in cache=%@ islandEnabled=%d machine=%@ nativeIsland=%d | breadcrumb=%d originalPresent=%d original=%@ captureSuspect=%d",
+     value ?: @"(absent)", islandEnabled, machine, nativeIsland, haveBreadcrumb, originalPresent,
+     originalValue ?: @"(none)", backupSuspect];
 
+    BOOL warned = NO;
+    if (backupHoldsSpoofValue) {
+        warned = YES;
+        [sLog logTag:@"CHECK" format:@"WARN the restore breadcrumb records 2556 as the ORIGINAL ArtworkDeviceSubType, but 2556 is the spoof value and %@ is not Dynamic Island hardware. The backup was captured while the spoof was already active, so restoring it cannot remove the spoof (this also affects the prerm helper). Open OITI's settings page once: it repairs the backup. Then check the next CHECK line after a respring.", machine];
+    }
     if (islandEnabled && !isSpoofed) {
+        warned = YES;
         [sLog logTag:@"CHECK" format:@"WARN islandEnabled is ON but the cache does not hold 2556: the Island spoof is not active (iOS update rebuilt the cache, or something restored it)"];
     } else if (!islandEnabled && isSpoofed) {
-        [sLog logTag:@"CHECK" format:@"WARN islandEnabled is OFF but the cache still holds 2556: a stale spoof was left behind (the restore did not run)"];
+        warned = YES;
+        if (backupHoldsSpoofValue) {
+            [sLog logTag:@"CHECK" format:@"WARN islandEnabled is OFF but the cache still holds 2556, and the poisoned backup (above) cannot remove it. Repair the backup first, then turn islandEnabled off again."];
+        } else {
+            [sLog logTag:@"CHECK" format:@"WARN islandEnabled is OFF but the cache still holds 2556: a stale spoof was left behind (the restore did not run, or did not take effect)"];
+        }
     }
     if (islandEnabled && !haveBreadcrumb) {
+        warned = YES;
         [sLog logTag:@"CHECK" format:@"WARN islandEnabled is ON but there is no restore breadcrumb: the prerm helper cannot restore the original value"];
     }
-    if (!(islandEnabled && !isSpoofed) && !(!islandEnabled && isSpoofed) && !(islandEnabled && !haveBreadcrumb)) {
+    if (backupSuspect && !backupHoldsSpoofValue) {
+        [sLog logTag:@"CHECK" format:@"INFO the backup was repaired: the original is recorded as absent, so turning islandEnabled off (or uninstalling) removes the key and lets iOS recompute the real value"];
+    }
+    if (!warned) {
         [sLog logTag:@"CHECK" format:@"OK spoof state matches islandEnabled"];
     }
 }
@@ -819,7 +870,7 @@ static void preferencesChanged(void) {
 
     // Diagnostics and safe-mode settings (no prefs UI yet; set with `defaults write`).
     sLog.enabled = [sOITIPreferences boolForKey:@"DiagnosticsEnabled" default:YES];
-    sLog.level = MAX(0, MIN(2, [sOITIPreferences integerForKey:@"DiagnosticsLevel" default:1]));
+    sLog.level = MAX(0, MIN(2, [sOITIPreferences integerForKey:@"DiagnosticsLevel" default:0]));
     sGuardEnabled = [sOITIPreferences boolForKey:@"SafeModeGuardEnabled" default:YES];
     sGuardMaxLaunches = MAX(2, [sOITIPreferences integerForKey:@"SafeModeMaxLaunches" default:5]);
     sGuardWindowSeconds = MAX(10, [sOITIPreferences integerForKey:@"SafeModeWindowSeconds" default:120]);
@@ -841,6 +892,8 @@ static void preferencesChanged(void) {
         [sLog logLevel:1 tag:@"PREF" format:@"CHANGED %@", [changes componentsJoinedByString:@", "]];
     }
     sLastPrefSnapshot = snapshot;
+
+    OITIUpdateDumpTrigger();
 }
 
 %ctor {
@@ -872,10 +925,11 @@ static void preferencesChanged(void) {
         [sLog logTag:@"SESSION" format:@"SAFE MODE: OITI hooks NOT installed. Diagnostics and dumps still work."];
     } else {
         %init(OITIHooks);
-        [sLog logTag:@"SESSION" format:@"READY hooks installed (profile=%d)", OITICurrentProfile() != NULL];
+        [sLog logTag:@"SESSION" format:@"READY hooks installed (profile=%d diagnostics=%d level=%ld)",
+         OITICurrentProfile() != NULL, sLog.enabled, (long)sLog.level];
     }
 
-    OITIStartDumpTrigger();
+    OITIObserveDumpNotification();
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC),
                    dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{

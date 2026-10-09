@@ -42,7 +42,7 @@ FOUNDATION_EXPORT BOOL OITLogIsEnabled(void);
 @property (nonatomic, copy, readonly) NSString *path;
 
 @property (atomic) BOOL enabled;                       // default YES. NO silences everything, including level-less lines.
-@property (atomic) NSInteger level;                    // default 2
+@property (atomic) NSInteger level;                    // default 0 (quiet); raise it from a preference
 @property (atomic) unsigned long long maxFileBytes;    // default 6 MB
 @property (atomic) NSUInteger tick;                    // shown as tNNN; set it from your display-link tick if you have one
 @property (atomic, copy, nullable) NSArray<NSString *> *ignoredImageNames;  // dylib file names left out of third-party=[...]

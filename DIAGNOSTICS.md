@@ -9,9 +9,18 @@ The OITS diagnostic build adds extensive logging for status bar problems. It is 
 | Log file | `/tmp/OITSDebug.log` (rotates at about 6 MB to `/tmp/OITSDebug.log.1`) |
 | Dump trigger | `touch /tmp/OITSDump.trigger` (detected by modification time within about a second) |
 | Dump via Darwin notification | `com.wilburt.oits/DumpState` |
-| Prefs keys | `DiagnosticsEnabled` (bool, default on), `DiagnosticsLevel` (0–2, default 2) |
+| Prefs keys | `DiagnosticsEnabled` (bool, default on), `DiagnosticsLevel` (0–2, **default 0**) |
 
 Levels: 0 = legacy lines only; 1 = events, state changes and heartbeat; 2 = adds every hooked call (rate limited) and a filtered tap on system notifications.
+
+**Diagnostics are off by default.** At level 0 OITS writes only its few legacy, session and preference lines and the `MAINSTALL` warning; there is no heartbeat, visibility watchdog, baseline dump or notification tap. To collect diagnostics, raise the level on the phone and respring:
+
+```
+defaults write com.wilburt.oits.prefs DiagnosticsLevel -int 2
+sbreload
+```
+
+Set it back with `-int 0` (or `defaults delete com.wilburt.oits.prefs DiagnosticsLevel`) when you are done.
 
 Logging is asynchronous and rate limited, so it should not stall SpringBoard. Deleting the log while running is safe; a fresh file is started.
 
@@ -102,3 +111,24 @@ scp -P 2222 root@localhost:/tmp/OITSDebug.log ~/Desktop/OITSDebug.log
 ## Overhead
 
 Ticks that run discovery and the visibility watchdog together (every 30 ticks) measured about 4 ms in testing, and app transitions measured 5–13 ms. That is acceptable for diagnosis but not for a release build; set `DiagnosticsEnabled` off or ship without the diagnostic build for daily use.
+
+## OITI diagnostics
+
+OITI has the same kind of logging, built on `OITLogger` from OITCore.
+
+| Item | Location |
+| --- | --- |
+| Log file | `/tmp/OITIDebug.log` (rotates at about 6 MB to `/tmp/OITIDebug.log.1`) |
+| Prefs-bundle log (MobileGestalt writes) | `/tmp/OITIPrefsDebug.log` |
+| Dump trigger | `touch /tmp/OITIDump.trigger`, or Darwin notification `com.wilburt.oiti/Dump` (needs level 1 or higher) |
+| Class query | put class names, one per line, in `/tmp/OITIClassQuery.txt` before triggering a dump |
+| Prefs keys | `DiagnosticsEnabled` (bool, default on), `DiagnosticsLevel` (0–2, **default 0**) |
+
+At level 0 OITI writes only `SESSION`, `GUARD`, `SAFE` and `CHECK` lines, about a dozen per boot, and that includes every warning (respring-loop guard, safe mode, MobileGestalt spoof self-check). It runs no polling timer and tracks no windows. Level 1 adds events and state changes (`PREF`, `ISLAND`, `CURTAIN`, `COLOR`, `BANNER`, `GAINMAP`, `TOUCHPASS`), starts the trigger-file poll and takes one baseline dump after the Island first lays out. Level 2 adds rate-limited per-call lines (`LAYOUT`).
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
+sbreload
+```
+
+Safe mode: after 5 SpringBoard launches within 120 s OITI stops installing its hooks until `/var/mobile/Library/Preferences/OITISafeMode.plist` is removed (or Darwin notification `com.wilburt.oiti/ClearSafeMode`), then respring. Installing or upgrading the package clears it.
