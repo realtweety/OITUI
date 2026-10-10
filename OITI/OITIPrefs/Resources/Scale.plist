@@ -10,7 +10,7 @@
         <key>label</key>
         <string>Custom Island Scale</string>
         <key>footerText</key>
-        <string>If you choose to use a custom scale, setting a custom position is recommended for best results.</string>
+        <string>Scale the Island separately in width (X) and height (Y). The Island's contents are stretched with it, so extreme values distort icons and text. Setting a custom position is recommended for best results.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -28,33 +28,67 @@
       </dict>
       <dict>
         <key>cell</key>
-        <string>PSEditTextCell</string>
+        <string>PSGroupCell</string>
         <key>label</key>
-        <string>Scale:</string>
-        <key>prompt</key>
-        <string>Enter Scale</string>
-        <key>bestGuess</key>
-        <string>1.0</string>
-        <key>placeholder</key>
-        <string>1.0</string>
-        <key>isNumeric</key>
-        <false/>
-        <key>PostNotification</key>
-        <string>com.wilburt.oiti/PrefsChanged</string>
+        <string>Width (X)</string>
+        <key>footerText</key>
+        <string>1.0 is the stock width.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>default</key>
+        <real>1.0</real>
         <key>defaults</key>
         <string>com.wilburt.oiti.prefs</string>
         <key>key</key>
-        <string>scale</string>
+        <string>scaleX</string>
+        <key>min</key>
+        <real>0.5</real>
+        <key>max</key>
+        <real>2.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Height (Y)</string>
+        <key>footerText</key>
+        <string>1.0 is the stock height.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>default</key>
+        <real>1.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>scaleY</string>
+        <key>min</key>
+        <real>0.5</real>
+        <key>max</key>
+        <real>2.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
       </dict>
       <dict>
         <key>action</key>
-        <string>savePos</string>
+        <string>resetScale</string>
         <key>cell</key>
         <string>PSButtonCell</string>
         <key>label</key>
-        <string>Save</string>
-        <key>defaults</key>
-        <string>com.wilburt.oiti.prefs</string>
+        <string>Reset Width and Height to 1.0</string>
       </dict>
     </array>
     <key>title</key>

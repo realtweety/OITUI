@@ -13,6 +13,11 @@
 //   5. OITI now only does anything in SpringBoard. Its plist filter also loads it into every UIKit app; the
 //      hooked classes only exist in SpringBoard, so apps used to run the constructor for nothing.
 //
+// X/Y SCALE (UNTESTED): the single "scale" value is replaced by separate width (scaleX) and height (scaleY) scales
+// applied as one non-uniform transform on the Island window. Contents stretch with it. An existing single "scale"
+// value is used for both axes until scaleX/scaleY are set. Changing any setting now asks the Island window to lay out
+// again, so changes show up immediately instead of at the next layout Apple happens to do.
+//
 // Log file:      /tmp/OITIDebug.log   (rotates at 6 MB to /tmp/OITIDebug.log.1)
 // Dump trigger:  touch /tmp/OITIDump.trigger        (polled once a second; detected by modification time)
 //                or Darwin notification com.wilburt.oiti/Dump
@@ -45,7 +50,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-09-a";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-09-b";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -74,7 +79,9 @@ static CGFloat green = 0.0;
 static CGFloat blue = 0.0;
 static CGFloat alpha = 1.0;
 
-static CGFloat scale = 1.0;
+static CGFloat scale = 1.0;    // legacy single scale; only a fallback for scaleX/scaleY now
+static CGFloat scaleX = 1.0;
+static CGFloat scaleY = 1.0;
 
 static CGFloat xPos = 0;
 static CGFloat yPos = 20.5;
@@ -110,6 +117,7 @@ static BOOL sSafeModeActive = NO;
 
 // Weak references to the live instances our hooks have seen; used only by the dump.
 static NSHashTable<UIView *> *sApertureWindows;
+static NSHashTable<UIView *> *sLiveApertureWindows;   // always maintained: used to re-layout after a setting changes
 static NSHashTable<UIView *> *sBannerWindows;
 static BOOL sAutoDumpScheduled = NO;
 static NSUInteger sDumpCount = 0;
@@ -162,7 +170,7 @@ static NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
         @"colorEnabled": @(colorEnabled), @"transEnabled": @(transEnabled), @"scaleEnabled": @(scaleEnabled),
         @"lineDisabled": @(lineDisabled),
         @"xPos": @(xPos), @"yPos": @(yPos), @"xNot": @(xNot), @"yNot": @(yNot),
-        @"red": @(red), @"green": @(green), @"blue": @(blue), @"alpha": @(alpha), @"scale": @(scale),
+        @"red": @(red), @"green": @(green), @"blue": @(blue), @"alpha": @(alpha), @"scale": @(scale), @"scaleX": @(scaleX), @"scaleY": @(scaleY),
     };
 }
 
@@ -182,16 +190,17 @@ static NSString *OITIPrefSnapshotString(NSDictionary<NSString *, NSNumber *> *sn
 // The built-in table wins when both are on, as before. On a device with no table entry, "fixEnabled" falls back
 // to the custom position.
 static void OITIApplyIslandPosition(UIView *window) {
-    CGFloat s = scaleEnabled ? OITISafeScaleValue(scale) : 1.0;
+    CGFloat sx = scaleEnabled ? OITISafeScaleValue(scaleX) : 1.0;
+    CGFloat sy = scaleEnabled ? OITISafeScaleValue(scaleY) : 1.0;
     CGRect frame = window.frame;
     const OITIDeviceProfile *profile = fixEnabled ? OITICurrentProfile() : NULL;
 
     if (profile) {
-        frame.origin.y = profile->islandY / s;
+        frame.origin.y = profile->islandY / sy;
     } else if (posEnabled) {
-        frame.origin.y = yPos / s;
+        frame.origin.y = yPos / sy;
         // Original behavior: with scaling on, only override x when it is set; without scaling, always set it.
-        if (!scaleEnabled || xPos > 0) frame.origin.x = xPos / s;
+        if (!scaleEnabled || xPos > 0) frame.origin.x = xPos / sx;
     } else {
         return;
     }
@@ -660,8 +669,7 @@ static void OITIRunStartupSelfCheck(void) {
     CGRect before = self.frame;
 
     if (scaleEnabled) {
-        CGFloat s = OITISafeScaleValue(scale);
-        CGAffineTransform wanted = CGAffineTransformMakeScale(s, s);
+        CGAffineTransform wanted = CGAffineTransformMakeScale(OITISafeScaleValue(scaleX), OITISafeScaleValue(scaleY));
         if (!CGAffineTransformEqualToTransform(self.transform, wanted)) self.transform = wanted;
         objc_setAssociatedObject(self, kOITIAppliedScaleKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     } else if (objc_getAssociatedObject(self, kOITIAppliedScaleKey)) {
@@ -674,13 +682,15 @@ static void OITIRunStartupSelfCheck(void) {
     CGRect afterOrig = self.frame;
     OITIApplyIslandPosition(self);
 
+    if (![sLiveApertureWindows containsObject:self]) [sLiveApertureWindows addObject:self];
+
     if ([sLog isLoggingAtLevel:1]) {
         [sApertureWindows addObject:self];
         OITIScheduleAutoDump();
-        NSString *signature = [NSString stringWithFormat:@"frame=%@ bounds=%@ xf=%@ fix=%d pos=%d scale=%d s=%.3f",
+        NSString *signature = [NSString stringWithFormat:@"frame=%@ bounds=%@ xf=%@ fix=%d pos=%d scale=%d sx=%.3f sy=%.3f",
                                NSStringFromCGRect(self.frame), NSStringFromCGRect(self.bounds),
                                NSStringFromCGAffineTransform(self.transform),
-                               fixEnabled, posEnabled, scaleEnabled, scale];
+                               fixEnabled, posEnabled, scaleEnabled, scaleX, scaleY];
         if ([sLog noteSignature:signature forObject:self]) {
             [sLog logLevel:1 tag:@"ISLAND" format:@"%@@%p changed: %@ (profile=%d)",
              NSStringFromClass([self class]), self, signature, OITICurrentProfile() != NULL];
@@ -839,6 +849,16 @@ static void OITIRunStartupSelfCheck(void) {
 // MARK: Preferences
 // =============================================================================================
 
+// Asks the Island windows to lay out again so new settings (scale, position) apply immediately. The layoutSubviews
+// hook does the actual work. Harmless when no window has been seen yet (or in safe mode, when no hook exists).
+static void OITIRefreshIslandLayout(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (UIView *window in sLiveApertureWindows.allObjects) {
+            [window setNeedsLayout];
+        }
+    });
+}
+
 static void preferencesChanged(void) {
     if (!sOITIPreferences) {
         sOITIPreferences = [OITPreferences preferencesWithDomain:kOITIPrefsDomain];
@@ -866,7 +886,9 @@ static void preferencesChanged(void) {
     green = [sOITIPreferences floatForKey:@"green" default:0.0];
     blue = [sOITIPreferences floatForKey:@"blue" default:0.0];
     alpha = [sOITIPreferences floatForKey:@"alpha" default:1.0];
-    scale = [sOITIPreferences floatForKey:@"scale" default:1.0];
+    scale = [sOITIPreferences floatForKey:@"scale" default:1.0];     // legacy single scale
+    scaleX = [sOITIPreferences floatForKey:@"scaleX" default:scale];  // falls back to the legacy value
+    scaleY = [sOITIPreferences floatForKey:@"scaleY" default:scale];
 
     // Diagnostics and safe-mode settings (no prefs UI yet; set with `defaults write`).
     sLog.enabled = [sOITIPreferences boolForKey:@"DiagnosticsEnabled" default:YES];
@@ -894,6 +916,7 @@ static void preferencesChanged(void) {
     sLastPrefSnapshot = snapshot;
 
     OITIUpdateDumpTrigger();
+    OITIRefreshIslandLayout();
 }
 
 %ctor {
@@ -907,6 +930,7 @@ static void preferencesChanged(void) {
 
     sApertureWindows = [NSHashTable weakObjectsHashTable];
     sBannerWindows = [NSHashTable weakObjectsHashTable];
+    sLiveApertureWindows = [NSHashTable weakObjectsHashTable];
 
     preferencesChanged();
 
