@@ -43,6 +43,16 @@ static const CGFloat kOITIScaleSliderMax = 2.0;
     return [super specifiers];
 }
 
+// Puts the Island Size sliders back to Apple's own size. Applies after a respring.
+- (void)resetIslandSize {
+    OITPreferences *prefs = [OITPreferences preferencesWithDomain:kOITIScalePrefsDomain];
+    [prefs setObject:@1.0 forKey:@"MetricsSensorWidthScale"];
+    [prefs setObject:@1.0 forKey:@"MetricsSensorHeightScale"];
+    [prefs synchronize];
+    OITPostDarwinNotification(kOITIScalePrefsChangedNotification);
+    [self reloadSpecifiers];
+}
+
 - (void)resetScale {
     OITPreferences *prefs = [OITPreferences preferencesWithDomain:kOITIScalePrefsDomain];
     [prefs setObject:@1.0 forKey:@"scaleX"];

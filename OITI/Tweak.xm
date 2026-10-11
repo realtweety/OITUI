@@ -18,6 +18,15 @@
 // value is used for both axes until scaleX/scaleY are set. Changing any setting now asks the Island window to lay out
 // again, so changes show up immediately instead of at the next layout Apple happens to do.
 //
+// ISLAND SIZE (UNTESTED as a settings feature; confirmed by a dump experiment): Apple builds the Island from
+// SBUISystemApertureLayoutMetrics. Its sensorRegionSize getter is the root input: _inertSize, minimumCompactSize, the
+// compact padding areas and the minimum corner radius are all derived from it (a hook on _inertSize alone changed
+// derived numbers but no pill sizes, so only sensorRegionSize is hooked). Scaling what it returns makes the Island
+// itself smaller or larger while icons, artwork and text keep their normal size, which the window transform cannot do.
+// 1.0 = Apple's own size. Set on the OITI > Scale page (Island Size sliders) or with -float defaults, applied after a
+// respring. Prefs keys (domain com.wilburt.oiti.prefs), each clamped to 0.3 - 2.0:
+//   MetricsSensorWidthScale     MetricsSensorHeightScale
+//
 // Log file:      /tmp/OITIDebug.log   (rotates at 6 MB to /tmp/OITIDebug.log.1)
 // Dump trigger:  touch /tmp/OITIDump.trigger        (polled once a second; detected by modification time)
 //                or Darwin notification com.wilburt.oiti/Dump
@@ -50,7 +59,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-09-b";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-10-b";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -82,6 +91,13 @@ static CGFloat alpha = 1.0;
 static CGFloat scale = 1.0;    // legacy single scale; only a fallback for scaleX/scaleY now
 static CGFloat scaleX = 1.0;
 static CGFloat scaleY = 1.0;
+
+// Island size multipliers applied to sensorRegionSize from SBUISystemApertureLayoutMetrics.
+// 1.0 = Apple's own value (no change). See the header comment.
+static CGFloat sMetricsSensorX = 1.0;
+static CGFloat sMetricsSensorY = 1.0;
+// The last value Apple's own getter returned before our multiplier, kept for the dump (zero = not called yet).
+static CGSize sRawSensorRegionSize;
 
 static CGFloat xPos = 0;
 static CGFloat yPos = 20.5;
@@ -142,6 +158,12 @@ static int64_t sLastTriggerMtimeNs = 0;
 @interface SBFTouchPassThroughView : UIView
 @end
 
+// Apple's layout-metrics object for the Island (SpringBoardUIServices). Its getters are computed, with no stored
+// state, which is what makes overriding them possible.
+@interface SBUISystemApertureLayoutMetrics : NSObject
++ (instancetype)sharedInstanceForEmbeddedDisplay;
+@end
+
 static CGFloat OITISafeScaleValue(CGFloat value) {
     if (!isfinite(value)) return 1.0;
     if (value < 0.05) return 1.0;
@@ -171,6 +193,7 @@ static NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
         @"lineDisabled": @(lineDisabled),
         @"xPos": @(xPos), @"yPos": @(yPos), @"xNot": @(xNot), @"yNot": @(yNot),
         @"red": @(red), @"green": @(green), @"blue": @(blue), @"alpha": @(alpha), @"scale": @(scale), @"scaleX": @(scaleX), @"scaleY": @(scaleY),
+        @"MetricsSensorW": @(sMetricsSensorX), @"MetricsSensorH": @(sMetricsSensorY),
     };
 }
 
@@ -438,11 +461,100 @@ static void OITIDumpQueriedClasses(void) {
     }
 }
 
+// Formats the return value of a no-argument getter, for the METRICS dump. Returns nil for unsupported types.
+static NSString *OITIFormatGetterResult(const void *buffer, const char *type) {
+    if (!strcmp(type, "d")) return [NSString stringWithFormat:@"%.3f", *(const double *)buffer];
+    if (!strcmp(type, "f")) return [NSString stringWithFormat:@"%.3f", *(const float *)buffer];
+    if (!strcmp(type, "B")) return *(const BOOL *)buffer ? @"YES" : @"NO";
+    if (!strcmp(type, "q")) return [NSString stringWithFormat:@"%lld", *(const long long *)buffer];
+    if (!strcmp(type, "Q")) return [NSString stringWithFormat:@"%llu", *(const unsigned long long *)buffer];
+    if (!strcmp(type, "{CGSize=dd}")) {
+        const CGSize *v = (const CGSize *)buffer;
+        return [NSString stringWithFormat:@"%.3f x %.3f", v->width, v->height];
+    }
+    if (!strcmp(type, "{CGPoint=dd}")) {
+        const CGPoint *v = (const CGPoint *)buffer;
+        return [NSString stringWithFormat:@"(%.3f, %.3f)", v->x, v->y];
+    }
+    if (!strcmp(type, "{CGRect={CGPoint=dd}{CGSize=dd}}")) {
+        const CGRect *v = (const CGRect *)buffer;
+        return [NSString stringWithFormat:@"origin (%.3f, %.3f) size %.3f x %.3f",
+                v->origin.x, v->origin.y, v->size.width, v->size.height];
+    }
+    if (!strcmp(type, "{NSDirectionalEdgeInsets=dddd}")) {
+        const NSDirectionalEdgeInsets *v = (const NSDirectionalEdgeInsets *)buffer;
+        return [NSString stringWithFormat:@"top %.3f leading %.3f bottom %.3f trailing %.3f",
+                v->top, v->leading, v->bottom, v->trailing];
+    }
+    return nil;
+}
+
+// Calls every no-argument getter that `source` declares (numbers, sizes, rects and insets only) on `target` and logs
+// the result. Read-only: these are plain computed values.
+static void OITIDumpNoArgGetters(id target, Class source, NSString *prefix) {
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(source, &count);
+    for (unsigned int i = 0; i < count; i++) {
+        SEL selector = method_getName(methods[i]);
+        const char *name = sel_getName(selector);
+        if (!name || strchr(name, ':') || name[0] == '.' || !strcmp(name, "hash")) continue;
+
+        char *returnType = method_copyReturnType(methods[i]);
+        NSMethodSignature *signature = [target methodSignatureForSelector:selector];
+        if (!returnType || !signature || signature.numberOfArguments != 2) {
+            free(returnType);
+            continue;
+        }
+        NSString *text = nil;
+        @try {
+            NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+            invocation.target = target;
+            invocation.selector = selector;
+            [invocation invoke];
+            NSUInteger length = signature.methodReturnLength;
+            if (length > 0 && length <= 64) {
+                char buffer[64];
+                memset(buffer, 0, sizeof(buffer));
+                [invocation getReturnValue:buffer];
+                text = OITIFormatGetterResult(buffer, returnType);
+            }
+        } @catch (NSException *exception) {
+            text = [NSString stringWithFormat:@"(threw %@)", exception.name];
+        }
+        if (text) {
+            [sLog logTag:@"DUMP" format:@"METRICS %@ %s = %@  [%s]", prefix, name, text, returnType];
+        }
+        free(returnType);
+    }
+    free(methods);
+}
+
+// What Apple sizes the Island from. The "effective" values below include any multiplier set by the Metrics* prefs;
+// the "raw" lines show what Apple's own getters returned.
+static void OITIDumpLayoutMetrics(void) {
+    Class cls = NSClassFromString(@"SBUISystemApertureLayoutMetrics");
+    if (!cls) {
+        [sLog logTag:@"DUMP" format:@"METRICS class SBUISystemApertureLayoutMetrics not found"];
+        return;
+    }
+    id shared = nil;
+    if ([cls respondsToSelector:@selector(sharedInstanceForEmbeddedDisplay)]) {
+        shared = [cls sharedInstanceForEmbeddedDisplay];
+    }
+    [sLog logTag:@"DUMP" format:@"METRICS shared instance=%@", shared ? [NSString stringWithFormat:@"%@@%p", NSStringFromClass([shared class]), shared] : @"nil"];
+    [sLog logTag:@"DUMP" format:@"METRICS multiplier sensorRegionSize=%.3f x %.3f", sMetricsSensorX, sMetricsSensorY];
+    [sLog logTag:@"DUMP" format:@"METRICS raw (what Apple returned to the hook; 0 x 0 = not called yet) sensorRegionSize=%.3f x %.3f",
+     sRawSensorRegionSize.width, sRawSensorRegionSize.height];
+    OITIDumpNoArgGetters(cls, object_getClass(cls), @"class");
+    if (shared) OITIDumpNoArgGetters(shared, cls, @"effective");
+}
+
 static void OITIRunDump(NSString *reason) {
     if (!sLog.enabled) return;
     NSUInteger index = ++sDumpCount;
     [sLog logTag:@"DUMP" format:@"=== BEGIN #%lu reason=%@ ===", (unsigned long)index, reason];
     OITIDumpEnvironment();
+    OITIDumpLayoutMetrics();
     OITIDumpWindowsOverview();
 
     NSArray<UIView *> *apertureWindows = sApertureWindows.allObjects;
@@ -661,6 +773,17 @@ static void OITIRunStartupSelfCheck(void) {
 // MARK: Hooks
 // =============================================================================================
 
+// Experimental Island size multipliers: keep them in a range that cannot collapse or explode the layout.
+static CGFloat OITIClampMetricsFactor(CGFloat value) {
+    if (!isfinite(value)) return 1.0;
+    return MAX(0.3, MIN(2.0, value));
+}
+
+static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat factorY) {
+    if (factorX == 1.0 && factorY == 1.0) return size;   // exact pass-through when unused
+    return CGSizeMake(size.width * factorX, size.height * factorY);
+}
+
 %group OITIHooks
 
 %hook SBSystemApertureWindow
@@ -843,6 +966,18 @@ static void OITIRunStartupSelfCheck(void) {
 
 %end
 
+// The root input Apple builds the Island from. Returns Apple's value times the Island Size multipliers (both 1.0 by
+// default, which is an exact pass-through). The raw value is kept for the dump.
+%hook SBUISystemApertureLayoutMetrics
+
+- (CGSize)sensorRegionSize {
+    CGSize size = %orig;
+    sRawSensorRegionSize = size;
+    return OITIApplyMetricsFactor(size, sMetricsSensorX, sMetricsSensorY);
+}
+
+%end
+
 %end
 
 // =============================================================================================
@@ -889,6 +1024,10 @@ static void preferencesChanged(void) {
     scale = [sOITIPreferences floatForKey:@"scale" default:1.0];     // legacy single scale
     scaleX = [sOITIPreferences floatForKey:@"scaleX" default:scale];  // falls back to the legacy value
     scaleY = [sOITIPreferences floatForKey:@"scaleY" default:scale];
+
+    // Island size multipliers (Apple's layout picks them up after a respring).
+    sMetricsSensorX = OITIClampMetricsFactor([sOITIPreferences floatForKey:@"MetricsSensorWidthScale" default:1.0]);
+    sMetricsSensorY = OITIClampMetricsFactor([sOITIPreferences floatForKey:@"MetricsSensorHeightScale" default:1.0]);
 
     // Diagnostics and safe-mode settings (no prefs UI yet; set with `defaults write`).
     sLog.enabled = [sOITIPreferences boolForKey:@"DiagnosticsEnabled" default:YES];
