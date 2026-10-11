@@ -273,19 +273,18 @@ When you are done, copy the log to the PC with the `scp` command from section 2 
 
 ## 6A. Island size (metrics)
 
-Makes the Island itself smaller or larger while its contents keep their normal size. Only the width and height multipliers of Apple's `sensorRegionSize` are used (the experiments showed it is the root input; the other sizes follow from it). 1.0 is Apple's own size. Changes apply after `sbreload`. You can also set these on the OITI > Scale page (Island Size sliders). Keep "Use Custom Scale" turned off while judging the result.
+Makes the Island itself smaller or larger while its contents keep their normal size. Only the width and height multipliers of Apple's `sensorRegionSize` are used (the experiments showed it is the root input; the other sizes follow from it). 1.0 is Apple's own size. Changes apply immediately, with no respring. You can also set these on the OITI > Scale page (Island Size sliders). Keep "Use Custom Scale" turned off while judging the result.
 
 | Command | What it does | Where |
 | --- | --- | --- |
 | `defaults read com.wilburt.oiti.prefs` | Shows the current multipliers (`MetricsSensorWidthScale`, `MetricsSensorHeightScale`). A missing key means 1.0. | Phone |
 | `grep METRICS /tmp/OITIDebug.log` | Shows Apple's real values, the multiplier in use, and every derived size. Needs `DiagnosticsLevel` 1 and a dump (`dumpstate metrics-check`). | Phone |
 
-Small Island (the setting from the test, 70% width and 80% height):
+Small Island (70% width and 80% height):
 
 ```
 defaults write com.wilburt.oiti.prefs MetricsSensorWidthScale -float 0.7
 defaults write com.wilburt.oiti.prefs MetricsSensorHeightScale -float 0.8
-sbreload
 ```
 
 Smaller Island (55% width and 75% height):
@@ -293,7 +292,6 @@ Smaller Island (55% width and 75% height):
 ```
 defaults write com.wilburt.oiti.prefs MetricsSensorWidthScale -float 0.55
 defaults write com.wilburt.oiti.prefs MetricsSensorHeightScale -float 0.75
-sbreload
 ```
 
 Narrower only (60% width, normal height):
@@ -301,7 +299,6 @@ Narrower only (60% width, normal height):
 ```
 defaults write com.wilburt.oiti.prefs MetricsSensorWidthScale -float 0.6
 defaults write com.wilburt.oiti.prefs MetricsSensorHeightScale -float 1.0
-sbreload
 ```
 
 Back to Apple's own size:
@@ -309,10 +306,16 @@ Back to Apple's own size:
 ```
 defaults write com.wilburt.oiti.prefs MetricsSensorWidthScale -float 1.0
 defaults write com.wilburt.oiti.prefs MetricsSensorHeightScale -float 1.0
-sbreload
 ```
 
-Allowed range is 0.3 to 2.0. The settings page sliders use 0.4 to 1.5 for width and 0.7 to 1.5 for height. Heights below about 0.75 can clip tall content such as the 22 point Spotify artwork.
+Allowed range is 0.3 to 2.0. The settings page sliders use 0.4 to 1.5 for width and 0.7 to 1.5 for height. Your 0.7 height looks fine on the phone. Below roughly 0.6 the 22 point Spotify artwork would no longer fit inside the pill (not tested).
+
+Your minimal look (65% width and 70% height):
+
+```
+defaults write com.wilburt.oiti.prefs MetricsSensorWidthScale -float 0.65
+defaults write com.wilburt.oiti.prefs MetricsSensorHeightScale -float 0.7
+```
 
 If the Island looks broken, run the "Back to Apple's own size" block. If SpringBoard keeps restarting, the loop guard switches OITI's hooks off after the fifth launch within 120 seconds. Then run the same block and clear safe mode (section 7).
 

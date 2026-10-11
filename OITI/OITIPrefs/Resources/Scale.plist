@@ -10,7 +10,7 @@
         <key>label</key>
         <string>Island Size</string>
         <key>footerText</key>
-        <string>Makes the Island itself smaller or larger while icons, artwork and text keep their normal size. 1.0 is Apple's own size. Changes apply after a respring (use the Respring button at the top right). Very small heights can clip tall content.</string>
+        <string>Makes the Island itself smaller or larger while icons, artwork and text keep their normal size. 1.0 is Apple's own size. Changes apply immediately, with no respring. Very small heights can clip tall content.</string>
       </dict>
       <dict>
         <key>cell</key>

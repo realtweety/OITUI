@@ -23,8 +23,9 @@
 // compact padding areas and the minimum corner radius are all derived from it (a hook on _inertSize alone changed
 // derived numbers but no pill sizes, so only sensorRegionSize is hooked). Scaling what it returns makes the Island
 // itself smaller or larger while icons, artwork and text keep their normal size, which the window transform cannot do.
-// 1.0 = Apple's own size. Set on the OITI > Scale page (Island Size sliders) or with -float defaults, applied after a
-// respring. Prefs keys (domain com.wilburt.oiti.prefs), each clamped to 0.3 - 2.0:
+// 1.0 = Apple's own size. Set on the OITI > Scale page (Island Size sliders) or with -float defaults. Changes apply
+// live: Apple reads the getter again on its next layout, and OITIRefreshIslandLayout asks the Island windows to lay
+// out whenever a setting changes (confirmed on-device, no respring needed). Prefs keys (domain com.wilburt.oiti.prefs), each clamped to 0.3 - 2.0:
 //   MetricsSensorWidthScale     MetricsSensorHeightScale
 //
 // Log file:      /tmp/OITIDebug.log   (rotates at 6 MB to /tmp/OITIDebug.log.1)
@@ -1025,7 +1026,7 @@ static void preferencesChanged(void) {
     scaleX = [sOITIPreferences floatForKey:@"scaleX" default:scale];  // falls back to the legacy value
     scaleY = [sOITIPreferences floatForKey:@"scaleY" default:scale];
 
-    // Island size multipliers (Apple's layout picks them up after a respring).
+    // Island size multipliers (Apple's layout reads them again on its next layout, so changes apply live).
     sMetricsSensorX = OITIClampMetricsFactor([sOITIPreferences floatForKey:@"MetricsSensorWidthScale" default:1.0]);
     sMetricsSensorY = OITIClampMetricsFactor([sOITIPreferences floatForKey:@"MetricsSensorHeightScale" default:1.0]);
 
