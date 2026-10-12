@@ -27,3 +27,12 @@ OITS is very much still WIP, as stated above. I have sort of abandoned it (FOR N
 OITI is doing really great in my opinion. The most recent added feature(s) were Island re-sizing and scaling which I am pretty proud of
 
 OITCore isn't used a whole lot inside of OITUI as of right now, simply because the tweaks are pretty early in being developed and don't really have too much of a need for OITCore. BUT, like with the other things, I plan on giving OITCore a lot more features and uses
+
+# Installation
+This link will bring you to latest release of OITI and OITCore https://github.com/realtweety/OITUI/releases/tag/v0.1.0
+
+This link will bring you to the latest release of OITS and the first releases of OITI and OITCore https://github.com/realtweety/OITUI/releases/tag/first_release
+
+As stated above, OITCore is required to be installed with OITI. OITI will not install without OITCore.
+
+OITUI is being tested on an iPhone 8 Plus jailbroken with Dopamine 3 running iOS 16.7.16
