@@ -1,6 +1,6 @@
 // OITI -- Dynamic Island positioning/appearance module for OITUI (fork of VisibleIsland by ethxnn88).
 //
-// STEP 2 BUILD (UNTESTED on-device). Build tag: see kOITIBuildTag.
+// STEP 2 BUILD. Build tag: see kOITIBuildTag.
 //
 // Step 1 (device table, single %orig, didMoveToWindow fixes, matching defaults, clamped divisor, setFrame
 // fall-through) is unchanged. Step 2 adds only logging, diagnostics and safety; no hook changes what it does:
@@ -13,12 +13,12 @@
 //   5. OITI now only does anything in SpringBoard. Its plist filter also loads it into every UIKit app; the
 //      hooked classes only exist in SpringBoard, so apps used to run the constructor for nothing.
 //
-// X/Y SCALE (UNTESTED): the single "scale" value is replaced by separate width (scaleX) and height (scaleY) scales
+// X/Y SCALE: the single "scale" value is replaced by separate width (scaleX) and height (scaleY) scales
 // applied as one non-uniform transform on the Island window. Contents stretch with it. An existing single "scale"
 // value is used for both axes until scaleX/scaleY are set. Changing any setting now asks the Island window to lay out
 // again, so changes show up immediately instead of at the next layout Apple happens to do.
 //
-// ISLAND SIZE (UNTESTED as a settings feature; confirmed by a dump experiment): Apple builds the Island from
+// ISLAND SIZE: Apple builds the Island from
 // SBUISystemApertureLayoutMetrics. Its sensorRegionSize getter is the root input: _inertSize, minimumCompactSize, the
 // compact padding areas and the minimum corner radius are all derived from it (a hook on _inertSize alone changed
 // derived numbers but no pill sizes, so only sensorRegionSize is hooked). Scaling what it returns makes the Island
