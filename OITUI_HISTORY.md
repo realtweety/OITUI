@@ -17,7 +17,6 @@
 | Build system | Theos, `THEOS_PACKAGE_SCHEME=rootless` |
 | Build machine | Mac, macOS 27 beta / Xcode 27 beta (migrated off Windows/WSL) |
 | Deploy | `make package install`, over SSH to `root@192.168.4.89` |
-| Repo license | MIT (root `LICENSE`) — see *Licensing* section for a caveat |
 | Status | Early development, actively iterating |
 
 ---
@@ -33,7 +32,7 @@ OITUI is a family of separate tweaks/packages, each with its own `control` file 
 ## The Modules
 
 ### OITCore
-The shared foundation every other module links against (`OITCore.dylib`, MIT-licensed). It's small but genuinely load-bearing:
+The shared foundation every other module links against (`OITCore.dylib`). It's small but genuinely load-bearing:
 - **`OITLog`** — a toggleable structured logger.
 - **`OITPreferences`** — a wrapper around `CFPreferences` (bool/float/int/string/object accessors). Notably patched so `floatForKey:` also accepts values stored as `NSString`, because `PSEditTextCell` specifiers with `isNumeric=false` store their value as a plain string rather than a number — this was silently breaking OITI's custom X/Y/scale fields before the fix.
 - **`OITDeviceInfo`** — machine identifier via `sysctlbyname`, plus `isFullScreenDevice`/`hasDynamicIsland` heuristics based on safe-area insets.
