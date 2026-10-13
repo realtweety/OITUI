@@ -454,19 +454,56 @@ One-time repository settings (†). Allows only squash merges and deletes merged
 gh api -X PATCH repos/realtweety/OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases (†). Only for tested work that is already on `main`. This is the v0.1.0 release:
+Releases. Only for tested work that is already on `main`. Build on the **Mac**, ship OITCore and OITI together, never OITS until it is verified. `v0.1.0` has been released (`46cf122`). The commands below prepare the next patch release, `v0.1.1`.
+
+First bump `Version:` in `OITI/control` (and `OITCore/control` if OITCore changed) to `0.1.1` through a normal pull request, then run on the Mac:
 
 ```
+cd ~/theos-projects/OITUI
+git fetch --prune origin
 git switch main
 git pull --ff-only
-git tag -a v0.1.0 -m "OITUI 0.1.0"
-git push origin v0.1.0
-gh release create v0.1.0 --title "OITUI 0.1.0" --generate-notes
+git log --oneline -3
+```
+
+Clear old build outputs and build release packages (no install, no `+debug`):
+
+```
+rm -f OITCore/packages/*.deb OITI/packages/*.deb
+cd OITCore
+make clean package FINALPACKAGE=1
+cd ../OITI
+make clean package FINALPACKAGE=1
+ls ../OITCore/packages ../OITI/packages
+```
+
+Each folder should list one `.deb`. Test those exact files on the phone (with `iproxy 2222 22` running):
+
+```
+scp -P 2222 ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb root@127.0.0.1:/var/mobile/
+```
+
+On the phone:
+
+```
+dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb
+sbreload
+```
+
+Then check the Island, the settings pages and the sliders. When it all works, publish from the Mac:
+
+```
+git tag -a v0.1.1 -m "OITUI 0.1.1"
+git push origin v0.1.1
+gh release create v0.1.1 --title "OITI 0.1.1" --generate-notes ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
 ```
 
 | Command | What it does | Where |
 | --- | --- | --- |
 | `git tag -l` | Lists existing tags. | Arch PC, Mac |
+| `git show v0.1.0 --stat` | Shows what the v0.1.0 tag points at. | Arch PC, Mac |
+| `gh release list` | Lists GitHub Releases. | Arch PC, Mac |
+| `gh release view v0.1.0` | Shows the v0.1.0 release and its attached files. | Arch PC, Mac |
 
 ## 11. Gotchas
 
@@ -476,3 +513,5 @@ gh release create v0.1.0 --title "OITUI 0.1.0" --generate-notes
 - The first `make package install` after changing OITCore headers must be in OITCore, before OITI or OITS.
 - Never add a trailing `# comment` to a command you paste into the phone.
 - `git branch -d` is the safe delete (it refuses unmerged branches). `-D` forces it, so use it only after a squash-merged pull request.
+- Releases come from the Mac with `FINALPACKAGE=1`. Packages built on the Arch PC print arm64e ABI warnings and should not be published.
+- After a squash merge GitHub deletes `experiments`. Recreate it with the block under "After the merge" before starting new work.

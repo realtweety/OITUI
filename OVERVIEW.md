@@ -4,141 +4,117 @@ OITUI is a multi-module iOS jailbreak tweak suite targeting rootless iOS 16 (Dop
 
 ## Modules
 
-- **OITCore** — Shared MIT-licensed foundation framework: logging, preferences, device info, notifications, view utilities.
-- **OITI** — Dynamic Island simulation, forked from [VisibleIsland](https://github.com/ethxnn88) by ethxnn88 (written permission obtained). Includes a standalone prefs bundle, OITIPrefs.
-- **OITS** — Status bar element repositioning tweak (clock, battery, WiFi, cellular signal, carrier text, network type) plus per-element hide.
-- **OITInspector** — Read-only diagnostic tool for live window hierarchy dumps. It cannot see the status bar content root (`_UIStatusBar`); use FLEX or the OITS diagnostic dump for that (see `DIAGNOSTICS.md`).
-- **OITG** — Liquid Glass rendering, a GPL-3.0 fork of liquidass. Not yet scaffolded as a real module; intentionally deferred.
+- **OITCore**: Shared MIT-licensed foundation framework: logging (`OITLog` and the `OITLogger` file logger), preferences, device info, notifications, view utilities.
+- **OITI**: Dynamic Island module, forked from [VisibleIsland](https://github.com/ethxnn88) by ethxnn88 (written permission obtained). Includes a standalone prefs bundle, OITIPrefs, and the `OITIRestoreGestalt` helper.
+- **OITS**: Status bar element repositioning tweak (clock, battery, WiFi, cellular signal, carrier text, network type) plus per-element hide.
+- **OITInspector**: Read-only diagnostic tool for live window hierarchy dumps. It cannot see the status bar content root (`_UIStatusBar`).
+- **OITG**: Liquid Glass rendering, a GPL-3.0 fork of liquidass. Not scaffolded; intentionally deferred.
 
-Related docs: `LEARNINGS.md` (constraints, safe patterns, workflow), `DIAGNOSTICS.md` (OITS diagnostic logging and how to read it), `IDEAS.md` (feature backlog), `CREDITS.md` and `LICENSES.md` (attribution and licensing, maintained separately).
+Related docs: `LEARNINGS.md` (constraints, safe patterns, lessons), `DIAGNOSTICS.md` (logging, dumps, how to read them), `COMMANDS.md` (every command, copy-paste exact), `WORKFLOW.md` (git, PRs, releases), `IDEAS.md` (backlog and research notes), `OITUI_HISTORY.md`, `CREDITS.md` and `LICENSES.md`.
 
 ## Where we left off (read first)
 
-*Early October 2026. This section is the hand-over for a new chat in the same project.*
+*Mid-October 2026 (11 Oct). This section is the hand-over for a new chat in the same project.*
 
-- **Status bar:** looks right after changing GesturesXV's Status Bar Style (now "Legacy"). OITS repositioning works. OITS work is **paused**. The OITS diagnostic build (`OITS/Tweak.xm`, build tag `OITS-diag-2026-10-02-c`) is written but **untested**; keep it on a branch such as `oits-diag`.
-- **Current focus: OITI.** The plan is Steps 1–4 below. **Step 1 is written but untested.**
-- **Step 1 files (in `OITI/`):** `Tweak.xm`, `OITIDeviceProfiles.h`, and in `OITIPrefs/`: `OITIBaseListController.h/.m`, `OITIRootListController.h/.m`, `OITIColorListController.h/.m`, `OITIScaleListController.h/.m`, `OITINotificationsListController.h/.m`, `Makefile`. Copy them over the repo versions. The prefs `Makefile` now also compiles `OITIBaseListController.m`.
-- **What Step 1 changed:**
-  - One device table replaces six copy-pasted if/else chains. A script verified the six chains agreed for all 17 models before they were removed. The table is shared with the prefs bundle.
-  - `layoutSubviews` now runs `%orig` once instead of twice.
-  - `didMoveToWindow` hooks on the curtain and gain-map views now call `%orig`, and the curtain only un-hides what OITI hid.
-  - The divisor for the Island's Y position now uses the clamped scale. Before, it used the raw value.
-  - Turning scale off now resets the window transform live.
-  - The appearance color now updates live.
-  - Prefs defaults now match the globals: `alpha` 1.0, `yPos` 20.5, `yNot` 40. Before, they were 0.0, which gave a transparent color or an Island at y = 0.
-  - A device with no table entry no longer swallows `SBBannerWindow -setFrame:`, and custom banner offsets now work there. With `fixEnabled` on, an unknown device falls back to custom position.
-  - The three prefs controllers share one base class, and the supported-device check uses the table.
-- **Test checklist on the iPhone 8 Plus** (it has no table entry, so it uses the custom path):
-  - Custom position (x/y) takes effect.
-  - Scale on and off both apply live.
-  - Hide curtain and gain map still work.
-  - Color and transparency changes apply without a respring.
-  - Custom banner offset works.
-  - Turning on `fixEnabled` shows "No built-in offsets".
-  - There is no logging in OITI yet, so judge visually.
+### State of the repo
+- **Released v0.1.0** (tag on `main` at `46cf122`, OITCore + OITI `.deb` files built on the Mac with `FINALPACKAGE=1`). Claude could not view the GitHub Release page, so the attached files are unverified from its side.
+- **`main` holds tested code.** Work happens on one branch, `experiments`, and lands by pull request with a squash merge (`WORKFLOW.md`). After PR #4 GitHub auto-deleted `experiments`, so **recreate it from `main` before starting new work** (`COMMANDS.md`, section 10).
+- Primary development machine is now the **Arch PC** (`~/OITUI`, fish shell). The Mac (`~/theos-projects/OITUI`) is used at school and for **release builds**.
 
-### Plan (OITI)
-1. **Cleanup (done, untested).**
-2. **Safety.**
-   - Respring-loop guard: a counter file, and auto-disable OITI features after N respring cycles within M minutes.
-   - Startup self-check: log when `islandEnabled` is on but the MobileGestalt cache no longer holds 2556.
-   - Test the `OITIRestoreGestalt` helper (the `prerm` path).
-   - Move the OITS logging core (async queue, rate limiting, state-change logs) into OITCore as `OITLog`.
-3. **Research (needs device dumps).**
-   - With a stock element active (music, timer), dump the `SBSystemApertureWindow` subtree with OITInspector.
-   - Decide how to put our own content in the Island: hook Apple's element providers (`SBSystemApertureStatusBarPillElementProvider` and friends) or draw our own overlay window.
-   - Study Crescendo (see below). This decides the design of notifications and the queue.
-4. **Queue/state controller, then Island-native notifications.**
+### What exists and was tested on the iPhone 8 Plus (iOS 16.7.16)
+- Step 1 cleanup (device table, single `%orig`, matching defaults, clamped scale).
+- Step 2 safety: `OITLogger`, respring-loop guard and safe mode, MobileGestalt self-check, backup repair (a poisoned "original = 2556" backup is now recorded as absent), quiet-by-default diagnostics (level 0).
+- **Island Size sliders** (OITI > Scale): width and height multipliers on Apple's `sensorRegionSize`. The Island itself shrinks while its content keeps normal size. Applies **live**. Owner's chosen minimal look: width 0.65, height 0.70.
+- **X/Y scale sliders** (same page): separate width and height window transform that scales Island and content together. Applies live. The old single `scale` value migrated correctly.
+- Island on/off through the settings switch (key removed and restored correctly).
+- Diagnostic dumps with a METRICS section and class queries.
 
-### Needed from the owner
-- The prefs plists (`Root`, `Color`, `Scale`, `Notifications`, `entry`) so slider defaults can be checked against the code defaults.
-- Crescendo's source files (see below), or confirmation to continue from its README alone.
-- A licensing decision on reusing anything from Crescendo.
-- Measurements for iPhone 8 / 8 Plus (`iPhone10,1/10,2/10,4/10,5`) if they should get table entries: the Island Y and the banner Y.
-- A decision on the OITI plist filter (see below).
+### Not verified, or known issues (owner chose to leave these)
+- **Not run:** the uninstall `prerm` path (`OITIRestoreGestalt`), hide curtain / hide gain map toggles, and the release `.deb` files on a clean install.
+- **Polish list:** banner position is slightly off at extreme Island sizes; custom color, opacity and banner offset do not apply live (they need a relayout request like the size sliders); the Scale page's X/Y sliders are absolute (their 1.0 is not Apple's size on this phone, see "Island research findings"); the "No built-in offsets" notice works.
+- **OITS is broken on the owner's phone.** The owner manually set `UIStatusBarVisualProviderClassName` to `_UIStatusBarProvider_DynamicSplit` in `com.apple.UIKit.plist`. It looks good except the top half of the status bar clips into the top of the screen, and OITS positioning does not work with that layout class. Parked. `main` still has the OITS diagnostic build (`OITS-diag-2026-09-29-a`), which has never run in a clean state; do not ship OITS yet.
 
-### Crescendo notes (github.com/Yves000/Crescendo)
-- Only the README could be read. GitHub blocks automated access to folder pages, and individual files need their URL pasted by the owner or the files uploaded. The files worth reading are `hooks/CRHooksDynamicIsland.x`, `CRPrivate.h`, `CRShared.m` and `CRPrefs.m`.
-- **License: GPL-3.0.** Copying code would require GPL-compatible licensing and credit, and OITI's license is still undecided.
-- Useful ideas from its README:
-  - One dylib injected into SpringBoard and **MediaRemoteUI**. MediaRemoteUI renders the Island's expanded media player.
-  - It builds its own volume slider from Apple's `MRU*` parts. That covers our "Volume Slider" idea.
-  - A single predicate decides slider visibility, so there is one source of truth.
-  - Live settings through Darwin notify-token state, with a preferences fallback.
-  - Private headers verified against iOS 16, 17, 18 and 26 dumps.
-  - Runtime version checks, so one build covers all versions.
-  - `postinst` restarts only the affected process, not a full respring.
-  - Uninstall removes everything the tweak wrote.
-- **Plist filter:** `OITI.plist` currently filters on `com.apple.springboard` and `com.apple.UIKit`, so OITI already loads into MediaRemoteUI and every app. It is probably wasteful, but narrowing it (for example to the SpringBoard and MediaRemoteUI executables) should wait until Step 3 shows which processes we need.
+### Current focus: Island content
+Own content in the Island (notifications, queue, progress bars, volume slider). The class dumps show Apple already has an element model that we may be able to use directly instead of an overlay window. See the plan below.
 
-## Licensing
+## Island research findings (iPhone 8 Plus, spoofed `ArtworkDeviceSubType` 2556)
 
-- MIT for OITCore.
-- OITI / OITS licensing TBD.
-- OITG is still planned to use liquidass (GPL-3.0) once work on it begins.
-- Attribution and licensing live in one project-wide `CREDITS.md` and one `LICENSES.md` rather than per-module sections.
+**Window and layout**
+- Apple's Island window (`SBSystemApertureWindow`) is a **360 x 640 canvas with a 1.15 transform** (frame 414 x 736), even with OITI scaling off. 1.15 = screen width / canvas width. There are two windows: one for `SBSystemApertureWindowScene` (content) and one for `SBSystemApertureCurtainWindowScene` (curtain).
+- View chain: window > `SBSystemApertureCaptureVisibilityShimViewController` > `SBSystemApertureViewController` > `SAUIElementViewController` > `SAUIElementView` > `_SAUIProvidedViewContainerView` > `_SAUIPortalView` (CAPortal-hosted content). When idle there is no element view controller, only the bare container.
+- Stock pill sizes in window units (multiply by 1.15 for screen points): idle 125.0 x 36.7, lock screen 165.7 x 36.7, Spotify compact 189.0 x 36.7, timer 201.0 x 36.7, Spotify expanded 337.3 x about 325. Compact height is always 36.7. Width = sensor region (125) + the content's outsets.
 
-## Toolchain
+**`SBUISystemApertureLayoutMetrics` (SpringBoardUIServices)**
+- A shared object (`+sharedInstanceForEmbeddedDisplay`) with about 24 computed getters and no stored state. Values here: `sensorRegionSize` 125 x 36.667, `_inertSize` the same, `minimumCompactSize` 125 x 36.667, `maximumCompactSize` 286.667 x 36.667, `maximumExpandedSize` 337.333 x 337.333, `minimumExpandedSize` 337.333 x 84, `compactConcentricAreaSize` 36.667 x 36.667, `compactLegibleAreaInsets` leading/trailing 10, `maximumLeadingTrailingViewSize` 80.667 x 36.667, `minimumMinimalSize` 36.667, `maximumMicroNoticeSize` 293.333 x 66.667, `minimumContinuousCornerRadius` 18.333, `interSensorRegionInWindowSpace` (213.333, 11.333) 9 x 36.667. Class methods: `_nativeScreenWidth` 360, `_deviceNativeScreenSizeIsLargePhone` NO.
+- **`sensorRegionSize` is the root input.** Everything else derives from it. Hooking `_inertSize` alone changed derived numbers but no pill sizes. OITI hooks only `sensorRegionSize` and multiplies it (live, via a relayout request). Icons, artwork and text stay stock size.
 
-- **Primary:** Mac (macOS 27 beta, Xcode 27 beta). `TARGET` is pinned to `iphone:clang:16.5:16.0` to avoid Xcode 27's default iOS 27 SDK, and a `Preferences.tbd → Preferences` symlink was added to the SDK for bundle linking.
-- **Also set up:** an Arch Linux PC (repo at `~/OITUI`, Theos at `~/theos` with `iPhoneOS16.5.sdk`, device paired over USB via libimobiledevice).
-- **Packaging:** Theos with rootless packaging (`THEOS_PACKAGE_SCHEME=rootless`), deployed over SSH.
-- **Deploy:** WiFi SSH to `192.168.4.89` stopped resolving in September 2026 (cause undiagnosed). The working method is USB through `iproxy`: run `iproxy 2222 22`, then build with `THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222`.
-- **Test device:** iPhone 8 Plus, jailbroken iOS 16.7.x.
+**Apple's content model (candidates for our own content)**
+- `SBSystemApertureProvidedContentElement` (`initWithIdentifier:contentProvider:`) has `leadingView`, `trailingView`, `minimalView`, preferred and supported layout modes, and edge outsets.
+- `SBUISystemApertureCustomContentProvider` (`initWithView:`, `providedView`, `contentColor`) wraps any view as content.
+- `SBUISystemApertureElementConfiguration` (leading/trailing/minimal views, `keyColor`, `launchURL`, layout modes, `preferredCustomLayout`) and `SBUISystemApertureElementSource` are the client-facing pieces.
+- `SAUISystemApertureManager` has `registerElement:`, `registeredElements`, `orderedElementViewControllers` and `_maximumNumberOfSimultaneouslyVisibleElements`. `SBSystemApertureElementAuthority` has `elementsOrderedByPromotionFromTemporallyOrderedElements:withPreviousOrdering:` (the priority and queue logic). `SBSystemAperturePresentableManager` registers and invalidates elements.
+- `SBChargingSystemApertureElementProvider` (`powerElementWithBatteryCapacity:`) is a SpringBoard-side example of creating an element.
+- Open questions: how to obtain the live `SAUISystemApertureManager`, and what protocol an element must satisfy.
+
+### Plan (Island content)
+1. **Research hooks (log-only, level 1).** Log calls to `-[SBSystemApertureProvidedContentElement initWithIdentifier:contentProvider:]` and `-[SAUISystemApertureManager registerElement:]` while charging, Spotify and a timer are active (identifiers, content provider classes, layout modes). Capture the manager instance. Add a protocol dump (`objc_copyProtocolList`, names containing "Aperture") and class query batches for the element protocols.
+2. **Proof of concept:** create one custom element (a "hello" leading label) on demand, using the charging provider as the template.
+3. **Then:** Island-native notifications, the queue and stacking logic, progress bars. The volume slider is separate (it needs OITI to load into MediaRemoteUI; see Licensing).
 
 ## Module state
 
 ### OITCore
-- All five source files built and confirmed working.
-- Retain-cycle bug in `OITObserveDarwinNotification` fixed; respring listener centralized in OITCore's constructor.
-- `floatForKey` accepts `NSString` values (fixes silently broken `PSEditTextCell` float fields).
+- Sources: `OITLog` (legacy `OITLog()` plus `OITLogger`: async file logger, rate limiting, stack budgets, state-change helper, default level 0), `OITPreferences`, `OITDeviceInfo`, `OITNotifications` (Darwin notifications, `OITRequestRespring`), `OITViewUtilities`.
+- Headers are installed into `$THEOS/include/OITCore` by the OITCore build. OITI and OITS compile against that copy, so rebuild OITCore first when it changes.
+- Macro parameters in `OITLog.h` end in `_` so they cannot collide with selector keywords.
 
 ### OITI
-- OITIPrefs bundle complete: Root, Color, Scale and Notifications controllers.
-- MobileGestalt corruption incident resolved with a breadcrumb-file backup/restore (`/var/mobile/Library/Preferences/OITIGestaltBackup.plist`) and an `OITIRestoreGestalt` helper tool run from a `prerm` script.
-- `OITISafeScaleValue()` clamping prevents degenerate transform lockups; curtain-hide logic includes `scaleEnabled`.
-- **Architecture (from code review):** OITI is not an Island renderer. `islandEnabled` writes `ArtworkDeviceSubType = 2556` into the MobileGestalt cache (backed up first, with a breadcrumb and a `prerm` restore helper), so iOS 16 builds its real SystemAperture. `Tweak.xm` then hooks `SBSystemApertureWindow` (position and scale), `SBBannerWindow` (notification banner position), `_SBSystemApertureMagiciansCurtainView` and `_SBGainMapView` (hide), `_SBSystemApertureContainerViewContentView` (background color), and `SBFTouchPassThroughView` (transparency and line hiding). Island content (music, timers) comes from Apple, not OITI. Ideas that need our own Island content (queue, notifications, progress bars, volume slider) therefore depend on the Step 3 research.
-- **Known fragile spots:** `frame.origin` is written on a transformed window inside `layoutSubviews` (the pattern that tore down status bar views; fine so far); the `SBBannerWindow -frame` getter returns constants; the `subviews.count == 4` heuristic on `SBFTouchPassThroughView` may change between iOS versions.
-- **Device table:** 17 models in `OITIDeviceProfiles.h`; seven are marked verified (iPhone X, XS, 11 Pro, 13 Pro, 13, 14), the rest are estimated.
+- **Architecture:** OITI is not an Island renderer. `islandEnabled` writes `ArtworkDeviceSubType = 2556` into the MobileGestalt cache (backed up first, breadcrumb at `/var/mobile/Library/Preferences/OITIGestaltBackup.plist`, restored by `OITIRestoreGestalt` from `prerm`) so iOS 16 builds its real SystemAperture. `Tweak.xm` then hooks `SBSystemApertureWindow` (position and scale transform), `SBBannerWindow` (banner position), `_SBSystemApertureMagiciansCurtainView` and `_SBGainMapView` (hide), `_SBSystemApertureContainerViewContentView` (background color), `SBFTouchPassThroughView` (transparency, line hiding) and `SBUISystemApertureLayoutMetrics` (`sensorRegionSize`, the Island Size). Island content (music, timers) comes from Apple.
+- **Process scope:** OITI's constructor returns immediately outside SpringBoard.
+- **Safety:** respring-loop guard (5 launches in 120 s trips safe mode, hooks not installed; cleared by removing `OITISafeMode.plist` or reinstalling), startup self-check (`CHECK` lines), backup repair in the prefs bundle (opening settings or toggling the switch).
+- **Settings pages:** Root, Color, Scale (Island Size sliders, X/Y scale sliders, resets), Notifications. Settings write the domain `com.wilburt.oiti.prefs` and post `com.wilburt.oiti/PrefsChanged`.
+- **Diagnostics:** level 0 by default (only `SESSION`, `GUARD`, `SAFE`, `CHECK`). Level 1 enables events, the trigger-file poll and dumps. See `DIAGNOSTICS.md`.
+- **Known fragile spots:** `frame.origin` is written on a transformed window in `layoutSubviews`; the `SBBannerWindow -frame` getter returns constants; the `subviews.count == 4` heuristic on `SBFTouchPassThroughView` may change between iOS versions.
+- **Device table:** 17 models in `OITIDeviceProfiles.h`, seven marked verified. The 8 Plus has no entry and uses the custom path.
 
 ### OITS
-- All six elements implemented. **Repositioning works on-device** (confirmed by the author after the status bar layout change described below).
-- Repositioning is transform-only (`CGAffineTransformMakeTranslation`) and applied exclusively from the `CADisplayLink` tick, never from system callbacks such as `setFrame:` or `layoutSubviews`. This resolved permanent view teardown.
-- Offsets are converted into the parent's pre-scale coordinate space (`parentScale`), which matters whenever a layout stretches the foreground view.
-- Discovery covers `_UIStaticBatteryView`, `_UIBatteryView` and a dedicated `_UIStatusBarCellularNetworkTypeView` path.
-- Hide Elements (all six) restored and confirmed working.
-- App Switcher / Control Center mirrored-view scoping guard is still missing (it was removed in an earlier revert) and is planned with extra caution. WiFi repositioning is best-effort.
-- **Diagnostic build (written, not yet installed or tested on-device).** It contains the fixes in the next section plus extensive logging. Keep it on a branch until tested.
+- Six elements implemented; repositioning was confirmed on-device on the stable build. It is transform-only and applied only from the `CADisplayLink` tick. Offsets are converted into the parent's pre-scale space.
+- `main` contains the **diagnostic build** (`OITS-diag-2026-09-29-a`): same behavior plus extensive logging. Defaults are now quiet (`DiagnosticsLevel` 0). The newer fixes in the old plan (time-like clock detection, disable sweep, `PROVIDER` dump line) were never committed anywhere and would have to be rebuilt.
+- Still missing: the App Switcher / Control Center mirrored-view scoping guard. OITS is broken on the owner's phone for the reason in "Not verified" above.
 
-#### Fixes in the diagnostic build (untested)
-- Clock detection now requires time-like text. The old "only string view among its siblings" rule mistook the "VZW Wi-Fi" carrier view for the clock whenever the real clock view was detached.
-- The carrier-text heuristic no longer grabs the clock.
-- Turning an element off sweeps every window and resets stale transforms. Status bar views are pooled and re-used, so a view that left the tracked set could stay displaced indefinitely.
-- `sPrevious*Enabled` flags were never assigned, so reset-on-disable could never fire. They are now assigned.
+## Licensing
+
+- MIT for OITCore. OITI / OITS licensing is still undecided. OITG is planned to use liquidass (GPL-3.0).
+- **Crescendo** ([Yves000/Crescendo](https://github.com/Yves000/Crescendo), GPL-3.0) only served as a reference. No code was copied. If a volume slider is added, write it clean-room from Apple's own classes, with separate toggles for the lock screen player and the Island player. Useful patterns: one predicate for visibility, expiring cross-process state, weak-captured view controllers in delayed blocks.
+- Attribution and licensing live in one project-wide `CREDITS.md` and one `LICENSES.md`.
+
+## Toolchain
+
+- **Machines:** Arch PC (primary, repo `~/OITUI`, Theos `~/theos` with `iPhoneOS16.5.sdk`, fish) and Mac (repo `~/theos-projects/OITUI`, `TARGET` pinned to `iphone:clang:16.5:16.0`). Arch builds print "incompatible arm64e ABI compiler" warnings: harmless on the arm64 iPhone 8 Plus, but **do not publish `.deb` files built on the Arch PC**.
+- **Packaging:** Theos rootless (`THEOS_PACKAGE_SCHEME=rootless`). Release builds use `FINALPACKAGE=1` (no `+debug`). All `control` files say `Version: 0.1.0`; dpkg sorts `0.0.10` below `0.1.0`, so keep versions ascending. OITI depends on `com.wilburt.oitcore`, so a release needs both packages.
+- **Deploy:** USB only. Run `iproxy 2222 22`, then `THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222 make package install` (Mac: `127.0.0.1`). WiFi SSH stopped resolving in September 2026.
+- **GitHub:** `gh auth login` and `gh auth setup-git` on each computer. The repo accepts squash merges only and deletes merged branches.
+- **Test device:** iPhone 8 Plus, jailbroken iOS 16.7.16. No real Dynamic Island hardware is available.
 
 ## Status bar layout investigation (history)
 
-- **Layout swap technique.** The third-party tweak [Little16](https://github.com/michaelmelita1/Little16) overrides `_UIStatusBarVisualProvider_iOS`'s `+class` to return a different Apple-native visual provider, so Apple's own layout code runs. Experiments:
-  - `_UIStatusBarVisualProvider_RoundedPad_ForcedCellular`: works, looks more modern.
-  - `_UIStatusBarVisualProvider_Phone`: infinite SpringBoard crash loop; ruled out.
-  - `_UIStatusBarVisualProvider_Split1080`: no crash, but icons render scaled up and clipped.
-- **Why Split1080 looked wrong.** `_UIStatusBarForegroundView` carries a uniform 1.104× transform (bounds 375 × 49.82, frame 414 × 55; 414 / 375 = 1.104). The layout is built for a 375 pt reference width and stretched to the 8 Plus's 414 pt, so child frames live in pre-scale space (the clock at x = -20.67, the battery at 382.67 and so off-screen). Any correction has to account for that scale.
-- **Class findings under Split1080.** Battery is `_UIBatteryView`; network type is `_UIStatusBarCellularNetworkTypeView` (an icon, not a string view); cellular and WiFi use classes OITS already hooked; the clock is a generic `_UIStatusBarStringView` that shares its slot with the carrier text ("VZW Wi-Fi") and swaps with it.
-- **Outcome.** After changing GesturesXV's Status Bar Style setting (it now shows "Legacy") and respringing, the status bar looks modern and correct: clock left, Dynamic Island centered, signal + LTE + battery percentage at right. The author attributes the change to GesturesXV. The exact mechanism has **not** been root-caused. The working hypothesis is that a forced layout class built for the wrong screen width was the problem. The planned check is to flip GesturesXV back to "iPhone X" and see whether the old layout returns.
-- BarOnLandScape (a separate tweak that shows the status bar in landscape) was present in the old logs and was resetting the clock's transform every 150 ms. It is not part of OITUI or GesturesXV.
-
-## Current status
-
-- Status bar looks right; OITS repositioning works. OITS work is paused.
-- OITI is the active module: Step 1 cleanup is written and untested; Steps 2–4 are planned (see "Where we left off").
+- **Layout swap technique.** The third-party tweak [Little16](https://github.com/michaelmelita1/Little16) overrides `_UIStatusBarVisualProvider_iOS`'s `+class` to return a different Apple-native visual provider. Experiments: `_UIStatusBarVisualProvider_RoundedPad_ForcedCellular` works; `_UIStatusBarVisualProvider_Phone` caused an infinite SpringBoard crash loop; `_UIStatusBarVisualProvider_Split1080` did not crash but rendered scaled up and clipped.
+- **Why Split1080 looked wrong.** `_UIStatusBarForegroundView` carried a uniform 1.104x transform (bounds 375 x 49.82, frame 414 x 55): the layout is built for a 375 pt canvas and stretched, so child frames live in pre-scale space. Any correction has to account for that scale. The Island window has the same kind of canvas scaling (1.15).
+- **Outcome.** Changing GesturesXV's Status Bar Style to "Legacy" gave a modern, correct status bar; the exact mechanism was never root-caused. In October 2026 the owner instead set `UIStatusBarVisualProviderClassName` to `_UIStatusBarProvider_DynamicSplit` by hand (see above).
+- BarOnLandScape (a separate tweak) was resetting the clock's transform every 150 ms in old logs. It is not part of OITUI.
 
 ## Open items
 
-- OITS: test the diagnostic build's fixes when OITS work resumes; restore the scoping guard; revisit the cellular-to-WiFi disappearing symptom and the Control Center bug (needs `SpringBoard-*.ips` crash logs grepped for "oits") only if they still occur under the new layout.
-- OITS: confirm the GesturesXV theory by flipping the style setting.
-- OITI: acquire a Dynamic Island reference device for testing on real hardware; arm64e new-ABI limitation on Linux means DI builds may need GitHub Actions macOS runners.
-- lldb debugging via XcodeRootDebug/USB was attempted unsuccessfully and remains an open goal.
-- OITG: deferred.
-- OITI: test the Step 1 files on-device, then start Step 2. Add logging first; OITI has none.
-- OITI: add table entries for iPhone 8 / 8 Plus once measured.
+- Island content research and proof of concept (above).
+- Polish: live color, opacity and banner offset; banner position at extreme sizes; make the X/Y scale relative to Apple's own size (new keys, no migration); lower the Island Height slider minimum if wanted (about 0.6 is where 22 pt artwork stops fitting, untested).
+- OITS: revert or adapt to the new layout class, rebuild the lost diagnostic fixes, restore the scoping guard.
+- Test the uninstall path and the release packages on a clean install.
+- Table entries for iPhone 8 / 8 Plus (`iPhone10,1/10,2/10,4/10,5`) once measured.
+- lldb debugging via XcodeRootDebug/USB was attempted unsuccessfully and remains an open goal. OITG is deferred.
+
+## Starting a new chat
+
+1. Upload `OVERVIEW.md`, `LEARNINGS.md`, `IDEAS.md`, `DIAGNOSTICS.md`, `COMMANDS.md` and `WORKFLOW.md`. Do not re-upload source; upload only the specific files a task needs.
+2. Say which task to start from "Plan (Island content)" above.
+3. Claude can clone the public repo in its sandbox to read code, but cannot run git on your machines, view GitHub web pages, or use the GitHub API reliably (rate-limited). Give it terminal output as pasted text and large logs as uploaded files.
+4. Deliveries come as a `.tar.gz` of full files with repo-relative paths; extract it on `experiments` with `tar -xzf` (`COMMANDS.md`, section 10).

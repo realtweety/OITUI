@@ -132,3 +132,11 @@ sbreload
 ```
 
 Safe mode: after 5 SpringBoard launches within 120 s OITI stops installing its hooks until `/var/mobile/Library/Preferences/OITISafeMode.plist` is removed (or Darwin notification `com.wilburt.oiti/ClearSafeMode`), then respring. Installing or upgrading the package clears it.
+
+### OITI dump contents
+
+A dump (`touch /tmp/OITIDump.trigger`, or the `dumpstate` helper in `COMMANDS.md`) writes `DUMP` lines for: the environment and preference snapshot (`ENV`, `PREFS`), a window overview (`WINDOWS`), a **`METRICS` section** (every no-argument getter on `SBUISystemApertureLayoutMetrics` and its class, the multiplier in use, and the raw value Apple returned to the hook), each tracked Island window's view and view-controller tree (`WINDOW`, `VC`, `TREE`), and every loaded class with "aperture" in its name (`CLASSES`). Classes named in `/tmp/OITIClassQuery.txt` are described under `CLASSQ` (superclass chain, protocols, ivars, methods). Query at most 5 classes per dump so the logger's backlog limit (4000 lines) does not drop lines.
+
+Useful greps on the phone: `grep METRICS /tmp/OITIDebug.log`, `grep CLASSQ /tmp/OITIDebug.log`, `grep MARK /tmp/OITIDebug.log`. The exact commands, per-state labels (`idle-home`, `lockscreen`, `spotify-collapsed`, `spotify-expanded`, `timer-compact`, ...) and class batches are in `COMMANDS.md`, sections 5 and 6.
+
+A normal install runs at level 0, so none of this is active until `DiagnosticsLevel` is raised.
