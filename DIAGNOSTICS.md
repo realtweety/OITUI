@@ -140,3 +140,15 @@ A dump (`touch /tmp/OITIDump.trigger`, or the `dumpstate` helper in `COMMANDS.md
 Useful greps on the phone: `grep METRICS /tmp/OITIDebug.log`, `grep CLASSQ /tmp/OITIDebug.log`, `grep MARK /tmp/OITIDebug.log`. The exact commands, per-state labels (`idle-home`, `lockscreen`, `spotify-collapsed`, `spotify-expanded`, `timer-compact`, ...) and class batches are in `COMMANDS.md`, sections 5 and 6.
 
 A normal install runs at level 0, so none of this is active until `DiagnosticsLevel` is raised.
+
+### OITI status bar report (STATUSBAR, untested diagnostic build)
+
+Build `OITI-exp-2026-10-13-sb-a` adds a read-only `STATUSBAR` report, logged at level 0 so testers need no `defaults write`. Gate it behind level 1 before it reaches `main`. It is written 4 seconds after SpringBoard starts and again with every dump. It records:
+
+- `SCREEN`: `UIScreen` bounds, native bounds, scale and native scale.
+- `TABLE`: the device table entry (banner window size, island Y, verified flag), to compare against the real screen.
+- `OVERRIDE`: the `UIStatusBarVisualProviderClassName` value in `com.apple.UIKit`, if any.
+- `RESOLVE`: what `+class`, `+_implementationClass` and `+_statusBarImplementationClass` return on `_UIStatusBarVisualProvider_iOS`, or that the selector is missing.
+- `PROVIDER`: every loaded class named `_UIStatusBar*Provider*` with its superclass, up to 60.
+
+Purpose: chase the red status bar titled `rdar:45025538` that some notch iPhones show while the Island spoof is on. Run it with the Island off and on and compare the `RESOLVE` lines. Commands: `COMMANDS.md`, section 12.

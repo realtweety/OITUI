@@ -515,3 +515,33 @@ gh release create v0.1.1 --title "OITI 0.1.1" --generate-notes ~/theos-projects/
 - `git branch -d` is the safe delete (it refuses unmerged branches). `-D` forces it, so use it only after a squash-merged pull request.
 - Releases come from the Mac with `FINALPACKAGE=1`. Packages built on the Arch PC print arm64e ABI warnings and should not be published.
 - After a squash merge GitHub deletes `experiments`. Recreate it with the block under "After the merge" before starting new work.
+
+## 12. Status bar provider check (STATUSBAR, UNTESTED build)
+
+The build tagged `OITI-exp-2026-10-13-sb-a` or later writes a read-only `STATUSBAR` report at level 0, 4 seconds after SpringBoard starts and with every dump. It reads the screen geometry, the status bar provider class UIKit resolves, every provider class on the device, and any `UIStatusBarVisualProviderClassName` override. It changes nothing.
+
+| Command | What it does | Where |
+| --- | --- | --- |
+| `grep -e SESSION -e SAFE /tmp/OITIDebug.log` | Shows the build tag and whether hooks are installed. Look for `READY hooks installed` and no `SAFE MODE`. | Phone |
+| `grep -c STATUSBAR /tmp/OITIDebug.log` | Counts the report lines. Zero means the build with the report is not the one running. | Phone |
+| `cp /tmp/OITIDebug.log /var/mobile/Documents/OITIDebug.log` | Copies the whole log to a folder Filza can share from. | Phone |
+
+Show the report:
+
+```
+grep STATUSBAR /tmp/OITIDebug.log | tail -90
+```
+
+Compare Island on and off:
+
+1. With the Island on, respring once, wait 2 minutes, run the grep above. The `BEGIN` line says `islandEnabled=1`.
+2. In OITI settings turn **Enable Dynamic Island** off, tap Respring, wait 2 minutes, run the grep again. The new `BEGIN` line says `islandEnabled=0`.
+3. Turn the Island back on and respring once.
+
+Wait at least 2 minutes between resprings so the respring-loop guard (section 7) does not trip. If it does, clear it with the `rm` row in section 7 and respring once.
+
+What to look at, per `BEGIN` block:
+- `SCREEN` against `TABLE`: the real bounds against the table's banner size.
+- `RESOLVE +class`: the provider class UIKit chose. Compare the Island-on value with the Island-off value.
+- `OVERRIDE`: should say `(not set)` on a phone with no manual override.
+- `PROVIDER` lines: the classes available as a fix target.
