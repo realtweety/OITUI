@@ -14,10 +14,10 @@ Related docs: `LEARNINGS.md` (constraints, safe patterns, lessons), `DIAGNOSTICS
 
 ## Where we left off (read first)
 
-*Mid-October 2026 (11 Oct). This section is the hand-over for a new chat in the same project.*
+*Mid-October 2026 (14 Oct). This section is the hand-over for a new chat in the same project.*
 
 ### State of the repo
-- **Released v0.1.0** (tag on `main` at `46cf122`, OITCore + OITI `.deb` files built on the Mac with `FINALPACKAGE=1`). Claude could not view the GitHub Release page, so the attached files are unverified from its side.
+- **Released v0.1.0** (tag on `main` at `46cf122`, OITCore + OITI `.deb` files built on the Mac with `FINALPACKAGE=1`). Claude downloaded the `v0.1.0-1` and `v0.1.0-2` packages later and confirmed each binary has arm64 and arm64e slices; the `iphoneos-arm64` in the file name is only the rootless package label.
 - **`main` holds tested code.** Work happens on one branch, `experiments`, and lands by pull request with a squash merge (`WORKFLOW.md`). After PR #4 GitHub auto-deleted `experiments`, so **recreate it from `main` before starting new work** (`COMMANDS.md`, section 10).
 - Primary development machine is now the **Arch PC** (`~/OITUI`, fish shell). The Mac (`~/theos-projects/OITUI`) is used at school and for **release builds**.
 
@@ -27,6 +27,7 @@ Related docs: `LEARNINGS.md` (constraints, safe patterns, lessons), `DIAGNOSTICS
 - **Island Size sliders** (OITI > Scale): width and height multipliers on Apple's `sensorRegionSize`. The Island itself shrinks while its content keeps normal size. Applies **live**. Owner's chosen minimal look: width 0.65, height 0.70.
 - **X/Y scale sliders** (same page): separate width and height window transform that scales Island and content together. Applies live. The old single `scale` value migrated correctly.
 - Island on/off through the settings switch (key removed and restored correctly).
+- Status Bar Layout: no-op on the 8 Plus (not in the table, owner's manual provider override unaffected). Tested on a tester's iPhone 13 mini only.
 - Diagnostic dumps with a METRICS section and class queries.
 
 ### Not verified, or known issues (owner chose to leave these)
@@ -36,6 +37,10 @@ Related docs: `LEARNINGS.md` (constraints, safe patterns, lessons), `DIAGNOSTICS
 
 ### Current focus: Island content
 Own content in the Island (notifications, queue, progress bars, volume slider). The class dumps show Apple already has an element model that we may be able to use directly instead of an overlay window. See the plan below.
+- **Status bar fix (14 Oct).** A Reddit user (iPhone 13 mini, iOS 16.5.1, NathanLR) reported a red status bar titled `rdar:45025538` with the Island on. Cause: with the 2556 spoof, UIKit's `+[_UIStatusBarVisualProvider_iOS visualProviderSubclassForScreen:visualProviderInfo:]` returns `nil` for his screen and iOS falls back to a placeholder. OITI now hooks that method (always `%orig`) and, under **Status Bar Layout = Automatic** (new picker at the bottom of the OITI settings page), returns the device's native provider while the Island is on. Interim GitHub releases `v0.1.0-1` (diagnostic) and `v0.1.0-2` (fix, a non-final `0.1.0-8+debug` build) were sent to the tester, who confirmed the bar is gone. `0.1.1` is the cleaned-up release that replaces them (`FINALPACKAGE=1`, `control` version 0.1.1).
+- His native provider, read from his log with the Island off: `_UIStatusBarVisualProvider_Split1080_Wide`. The first fix used `Split1080` and also worked. His screen bounds are 375 x 812 points.
+- **Status bar fix:** only the iPhone 13 mini has a native provider read from a real log. Every other device uses a guess by native pixel width (828 for XR and 11, 1125, 1170, 1242, 1284), and the 828-pixel rule is untested. The `_Wide` variants probably belong to the iPhone 13 generation (smaller notch); not confirmed. The mini rows in `OITIDeviceProfiles.h` (`iPhone13,1`, `iPhone14,4`) now say 375 x 812 (the old 360 x 780 was wrong), which only matters for the banner fix and is untested on-device.
+- The 0.1.1 refinements after the tester's log (native table, `nil` handling, level gating) were not re-run on the mini.
 
 ## Island research findings (iPhone 8 Plus, spoofed `ArtworkDeviceSubType` 2556)
 
@@ -76,6 +81,7 @@ Own content in the Island (notifications, queue, progress bars, volume slider). 
 - **Diagnostics:** level 0 by default (only `SESSION`, `GUARD`, `SAFE`, `CHECK`). Level 1 enables events, the trigger-file poll and dumps. See `DIAGNOSTICS.md`.
 - **Known fragile spots:** `frame.origin` is written on a transformed window in `layoutSubviews`; the `SBBannerWindow -frame` getter returns constants; the `subviews.count == 4` heuristic on `SBFTouchPassThroughView` may change between iOS versions.
 - **Device table:** 17 models in `OITIDeviceProfiles.h`, seven marked verified. The 8 Plus has no entry and uses the custom path.
+- **Status bar layout:** `StatusBarLayout` (auto, off, or a `_UIStatusBarVisualProvider_*` name). Hook group `OITIStatusBarHooks` (separate from `OITIHooks`, same safe-mode rule). `CHOICE` lines at level 0, boot report and `LIVE` lines at level 1 (`DIAGNOSTICS.md`, `COMMANDS.md` section 12).
 
 ### OITS
 - Six elements implemented; repositioning was confirmed on-device on the stable build. It is transform-only and applied only from the `CADisplayLink` tick. Offsets are converted into the parent's pre-scale space.
@@ -102,6 +108,7 @@ Own content in the Island (notifications, queue, progress bars, volume slider). 
 - **Why Split1080 looked wrong.** `_UIStatusBarForegroundView` carried a uniform 1.104x transform (bounds 375 x 49.82, frame 414 x 55): the layout is built for a 375 pt canvas and stretched, so child frames live in pre-scale space. Any correction has to account for that scale. The Island window has the same kind of canvas scaling (1.15).
 - **Outcome.** Changing GesturesXV's Status Bar Style to "Legacy" gave a modern, correct status bar; the exact mechanism was never root-caused. In October 2026 the owner instead set `UIStatusBarVisualProviderClassName` to `_UIStatusBarProvider_DynamicSplit` by hand (see above).
 - BarOnLandScape (a separate tweak) was resetting the clock's transform every 150 ms in old logs. It is not part of OITUI.
+- **Red `rdar:45025538` bar (Oct 2026).** Seen first on iPhone XR and 11 (VisibleIsland's README), then on an iPhone 13 mini. It appears with the spoof on even when none of OITI's hooks are installed, so it comes from the spoof. A class dump found the real selector: `+[_UIStatusBarVisualProvider_iOS visualProviderSubclassForScreen:visualProviderInfo:]` (returns a `Class`; the older `+class` and `_implementationClass` probes do not choose the provider on iOS 16.7). On the mini it returns `nil` with the Island on and `_UIStatusBarVisualProvider_Split1080_Wide` with it off. Fixed by returning the native provider in that case. `_UIStatusBarVisualProvider_Fallback` exists but was not what UIKit returned.
 
 ## Open items
 
@@ -111,6 +118,8 @@ Own content in the Island (notifications, queue, progress bars, volume slider). 
 - Test the uninstall path and the release packages on a clean install.
 - Table entries for iPhone 8 / 8 Plus (`iPhone10,1/10,2/10,4/10,5`) once measured.
 - lldb debugging via XcodeRootDebug/USB was attempted unsuccessfully and remains an open goal. OITG is deferred.
+- Status bar fix: collect a native provider from other devices (Island off, `grep CHOICE`), especially iPhone XR and 11, 12 mini and the 12/13 families; add them to `OITINativeProviderNameForScreen`. Idea for later: record the native provider to a flat plist whenever `CHOICE` runs with the Island off (the default after install), and use that instead of a table.
+- Make safe mode visible in the settings page and reconsider the 45 s stability window: a tester tripped it in 100 s by respringing while changing settings, and every later setting then silently did nothing.
 
 ## Starting a new chat
 

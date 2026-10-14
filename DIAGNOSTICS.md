@@ -141,14 +141,26 @@ Useful greps on the phone: `grep METRICS /tmp/OITIDebug.log`, `grep CLASSQ /tmp/
 
 A normal install runs at level 0, so none of this is active until `DiagnosticsLevel` is raised.
 
-### OITI status bar report (STATUSBAR, untested diagnostic build)
+### OITI status bar layout and provider log (STATUSBAR)
 
-Build `OITI-exp-2026-10-13-sb-a` adds a read-only `STATUSBAR` report, logged at level 0 so testers need no `defaults write`. Gate it behind level 1 before it reaches `main`. It is written 4 seconds after SpringBoard starts and again with every dump. It records:
+Chases the red status bar titled `rdar:45025538` that some notch iPhones show while the Island spoof is on. With the Island on, UIKit's `+[_UIStatusBarVisualProvider_iOS visualProviderSubclassForScreen:visualProviderInfo:]` returned `nil` on an iPhone 13 mini and iOS fell back to its placeholder. OITI hooks that method (always calling `%orig`) and can return the device's native provider.
 
-- `SCREEN`: `UIScreen` bounds, native bounds, scale and native scale.
-- `TABLE`: the device table entry (banner window size, island Y, verified flag), to compare against the real screen.
-- `OVERRIDE`: the `UIStatusBarVisualProviderClassName` value in `com.apple.UIKit`, if any.
-- `RESOLVE`: what `+class`, `+_implementationClass` and `+_statusBarImplementationClass` return on `_UIStatusBarVisualProvider_iOS`, or that the selector is missing.
+Level 0:
+
+- `CHOICE`: what UIKit returned, the screen's native bounds, the Island state, the Status Bar Layout setting, the decision taken and what OITI returned. One line per distinct combination, at most 16.
+
+Level 1 (boot report 4 seconds after SpringBoard starts, and with every dump):
+
+- `BEGIN` / `END`, `SCREEN` (bounds, native bounds, scale, native scale), `TABLE` (device table entry), `OVERRIDE` (`UIStatusBarVisualProviderClassName` in `com.apple.UIKit`, if any), `LAYOUT` (the setting).
 - `PROVIDER`: every loaded class named `_UIStatusBar*Provider*` with its superclass, up to 60.
+- `LIVE`: for each `_UIStatusBar`, from `-_prepareVisualProviderIfNeeded`: the provider class it has, its class name, target screen and window. At most 24.
 
-Purpose: chase the red status bar titled `rdar:45025538` that some notch iPhones show while the Island spoof is on. Run it with the Island off and on and compare the `RESOLVE` lines. Commands: `COMMANDS.md`, section 12.
+Status Bar Layout (key `StatusBarLayout`, picker at the bottom of the settings page), only while the Island is on:
+
+- `auto` (default): on a notch iPhone in the device table, return its native provider when UIKit chose nothing or `_UIStatusBarVisualProvider_Fallback`, or, for the 828 and 1080 pixel screens, when UIKit chose anything else. Everything else is left alone.
+- `off`: never change UIKit's answer.
+- a `_UIStatusBarVisualProvider_*` class name: return that class.
+
+Native providers read from a device's own log (Island off): `iPhone14,4` (13 mini) uses `_UIStatusBarVisualProvider_Split1080_Wide`. Other devices use a guess by native pixel width until a log is available.
+
+Steps and commands: `COMMANDS.md`, section 12.

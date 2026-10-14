@@ -516,32 +516,32 @@ gh release create v0.1.1 --title "OITI 0.1.1" --generate-notes ~/theos-projects/
 - Releases come from the Mac with `FINALPACKAGE=1`. Packages built on the Arch PC print arm64e ABI warnings and should not be published.
 - After a squash merge GitHub deletes `experiments`. Recreate it with the block under "After the merge" before starting new work.
 
-## 12. Status bar provider check (STATUSBAR, UNTESTED build)
+## 12. Status bar layout (red `rdar:45025538` bar) and provider check
 
-The build tagged `OITI-exp-2026-10-13-sb-a` or later writes a read-only `STATUSBAR` report at level 0, 4 seconds after SpringBoard starts and with every dump. It reads the screen geometry, the status bar provider class UIKit resolves, every provider class on the device, and any `UIStatusBarVisualProviderClassName` override. It changes nothing.
+Build `0.1.1` (tag `OITI-0.1.1-rc1`) has a **Status Bar Layout** picker at the bottom of OITI's settings page (Automatic, Off, or a named layout). It only acts while the Island is on, and the hooks are off in safe mode. The provider is chosen when a status bar is built, so a changed layout needs a respring. Level 0 writes one `CHOICE` line per distinct provider choice. Level 1 adds a boot report, `LAYOUT`, `PROVIDER` lists and one `LIVE` line per status bar.
 
 | Command | What it does | Where |
 | --- | --- | --- |
 | `grep -e SESSION -e SAFE /tmp/OITIDebug.log` | Shows the build tag and whether hooks are installed. Look for `READY hooks installed` and no `SAFE MODE`. | Phone |
-| `grep -c STATUSBAR /tmp/OITIDebug.log` | Counts the report lines. Zero means the build with the report is not the one running. | Phone |
-| `cp /tmp/OITIDebug.log /var/mobile/Documents/OITIDebug.log` | Copies the whole log to a folder Filza can share from. | Phone |
-
-Show the report:
-
-```
-grep STATUSBAR /tmp/OITIDebug.log | tail -90
-```
-
-Compare Island on and off:
-
-1. With the Island on, respring once, wait 2 minutes, run the grep above. The `BEGIN` line says `islandEnabled=1`.
-2. In OITI settings turn **Enable Dynamic Island** off, tap Respring, wait 2 minutes, run the grep again. The new `BEGIN` line says `islandEnabled=0`.
-3. Turn the Island back on and respring once.
+| `grep CHOICE /tmp/OITIDebug.log` | The provider UIKit chose, what OITI returned and why. Works at level 0. | Phone |
+| `grep STATUSBAR /tmp/OITIDebug.log \| tail -90` | The whole report, including `LIVE`, `LAYOUT` and `PROVIDER` lines. Needs level 1 (`DiagnosticsLevel`, section 5). | Phone |
 
 Wait at least 2 minutes between resprings so the respring-loop guard (section 7) does not trip. If it does, clear it with the `rm` row in section 7 and respring once.
 
-What to look at, per `BEGIN` block:
-- `SCREEN` against `TABLE`: the real bounds against the table's banner size.
-- `RESOLVE +class`: the provider class UIKit chose. Compare the Island-on value with the Island-off value.
-- `OVERRIDE`: should say `(not set)` on a phone with no manual override.
-- `PROVIDER` lines: the classes available as a fix target.
+**Someone reports the red bar.**
+1. They install the `.deb` and respring once. Automatic is the default.
+2. If it is still red or looks wrong: Settings > OITI > Status Bar Layout, pick another layout, tap Respring, wait 2 minutes.
+3. They run `grep CHOICE /tmp/OITIDebug.log` and send the output.
+
+**Reading a `CHOICE` line.**
+- `UIKit chose X`: the provider iOS picked for this screen. With the Island off this is the device's native provider; write it down. `nil` with the Island on is what the red bar looks like.
+- `-> returning Y`: what OITI returned, with the decision text. `auto replaced ...` means OITI substituted the native provider.
+- To read a device's native provider: set Enable Dynamic Island off, respring, and read the line with `islandEnabled=0`. Add it to `OITINativeProviderNameForScreen` in `Tweak.xm`.
+
+**To set the layout from a terminal instead of the picker:**
+
+```
+defaults write com.wilburt.oiti.prefs StatusBarLayout -string off
+```
+
+Valid values are `auto`, `off`, or a `_UIStatusBarVisualProvider_*` class name from the `PROVIDER` lines. The phone's `defaults` has no delete mode, so write `auto` to go back. A wrong class can crash SpringBoard; after 5 launches in 120 s safe mode turns the hooks off, and the red bar returns but the phone stays usable.

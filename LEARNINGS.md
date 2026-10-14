@@ -19,6 +19,10 @@ Hard-won technical constraints, safe patterns, and workflow lessons from OITUI d
 - **Slots can hold more than one view.** The time view and the carrier/network text view can share a slot and swap with a crossfade (alpha 0, scale 0.75), detaching the time view in between. Never identify the clock by "it's the only string view"; use its text (for example, a digit plus `:` or `.`).
 - **Visual providers choose the layout.** A Split provider lays content out for a fixed reference width and stretches the foreground view with a uniform scale transform. Child frames are in pre-scale space, so convert desired on-screen offsets by dividing by the parent scale.
 - **Third-party tweaks hook the same views.** Hook `setTransform:`, `setHidden:` and `setAlpha:`, flag your own writes, and log the call stack for everyone else's. The stack names the culprit dylib. This is how a separate landscape-status-bar tweak was found resetting the clock's transform every 150 ms.
+- **The visual provider is chosen in `+[_UIStatusBarVisualProvider_iOS visualProviderSubclassForScreen:visualProviderInfo:]`** (returns a `Class`, takes the screen and an info dictionary, which was `nil` in every observed call). `_UIStatusBar` keeps `_visualProviderClass` and `_visualProviderInfo` and builds the provider in `-_prepareVisualProviderIfNeeded`. `+class`, `+_implementationClass` and `+_statusBarImplementationClass` do not choose it on iOS 16.7.
+- **The provider family is keyed by native pixel width:** `Split828`, `Split1080`, `Split1080_Wide`, `Split1125`, `Split1170`, `Split1170_Wide`, `Split1242`, `Split1284`, `Split1284_Wide`, plus `DynamicSplit` and `DynamicSplitMedium` for Island hardware. A 13 mini natively gets `Split1080_Wide`. `_UIStatusBarVisualProvider_Fallback` is a separate placeholder class.
+- **The red `rdar:45025538` bar comes from the spoof alone.** With `ArtworkDeviceSubType` 2556 on a screen UIKit does not expect, the selector returned `nil` (an iPhone 13 mini). The fix is to return the native provider while the Island is on, and to log what UIKit chose with the Island off.
+- **`UIScreen` scale lies on minis:** an iPhone 13 mini reports bounds 375 x 812 with scale 3.0, but its native bounds are 1080 x 2340 (native scale 2.88). The old 360 x 780 table entry was wrong.
 
 ## Debugging and logging practice
 
@@ -70,6 +74,7 @@ See `DIAGNOSTICS.md` for the OITS tags, trigger file and commands.
 - **Package versions:** dpkg sorts `0.0.10` below `0.1.0`. The `-N` build counter is per machine, so "downgrading" warnings between machines are harmless. Release builds use `FINALPACKAGE=1`; clear `packages/` first (it keeps every earlier build) and ship OITCore with OITI because OITI depends on it.
 - **The phone's `defaults` has no `delete` mode.** Write an explicit value (`-int 0`) instead.
 - **`sbreload` can drop the SSH session.** Log in again and re-define shell helpers such as `dumpstate`.
+- **`iphoneos-arm64` is only the rootless package label.** The binaries inside are fat arm64 + arm64e. Check a release by downloading it, then `ar x`, extracting `data.tar.*` and reading the Mach-O header. A package without `FINALPACKAGE=1` is versioned `X.Y.Z-N+debug`; do not ship one as a release.
 
 ## Git and release lessons
 
@@ -84,6 +89,8 @@ See `DIAGNOSTICS.md` for the OITS tags, trigger file and commands.
 - Claude cannot run git on your machines. It can clone the public repo in its own sandbox to read code, but GitHub web pages, `/tree/` pages and the API are unreliable (rate limits). Paste terminal output as text and upload large logs as files.
 - Prefer small, staged tasks with one complete deliverable each. Deliveries are full files in a `.tar.gz` with repo-relative paths (extract with `tar -xzf` on `experiments`).
 - Ask for exact copy-paste commands; add new commands to `COMMANDS.md`.
+- **Remote testers:** a log from their phone beats theory. Ship one build with a read-only log and an opt-in fix, and put the choice in a settings picker so the tester does not need a terminal. Ask for one command at the end. Tell them to wait 2 minutes between resprings (safe mode).
+- **A tester's first symptom can be a safe-mode side effect.** Check `grep -e SESSION -e SAFE` first: safe mode silently disables every hook while the spoof stays on.
 
 ## Ways of working
 

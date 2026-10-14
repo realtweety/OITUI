@@ -1,11 +1,15 @@
 // OITI -- Dynamic Island positioning/appearance module for OITUI (fork of VisibleIsland by ethxnn88).
 //
-// STEP 2 BUILD. Build tag: see kOITIBuildTag.
+// STEP 2 BUILD (UNTESTED on-device). Build tag: see kOITIBuildTag.
 //
-// STATUS BAR DIAGNOSTIC BUILD (UNTESTED): adds one read-only STATUSBAR report (see "Status bar provider diagnostic"
-// below) to chase the red "rdar:45025538" status bar some notch iPhones show while the Island spoof is on. It changes
-// no behaviour: no new hook, no write to any system view or preference. It is logged at level 0 on purpose so a tester
-// needs no `defaults write`; gate it behind level 1 before this reaches `main`.
+// STATUS BAR FIX: with the Island spoof on, some notch iPhones showed a red "rdar:45025538" status bar. UIKit returned no
+// provider class for the spoofed device (nil) and fell back to its placeholder. Two hooks that always call %orig watch
+// the provider choice (+[_UIStatusBarVisualProvider_iOS visualProviderSubclassForScreen:visualProviderInfo:]) and each
+// _UIStatusBar's _prepareVisualProviderIfNeeded. The provider hook can replace UIKit's answer, governed by the Status Bar
+// Layout picker on the settings page (auto by default, off, or a named class); see "Status bar provider choice". It only
+// acts while the Island is on. Confirmed on an iPhone 13 mini (iOS 16.5.1) by a tester running the previous build; the
+// native-provider table and nil handling added after reading his log are not yet re-tested on that phone. CHOICE is
+// logged at level 0 (one line per distinct combination); the boot report and LIVE lines need level 1.
 //
 // Step 1 (device table, single %orig, didMoveToWindow fixes, matching defaults, clamped divisor, setFrame
 // fall-through) is unchanged. Step 2 adds only logging, diagnostics and safety; no hook changes what it does:
@@ -17,15 +21,19 @@
 //      the methods/ivars of any classes you list. This is the data the Step 3 research needs.
 //   5. OITI now only does anything in SpringBoard. Its plist filter also loads it into every UIKit app; the
 //      hooked classes only exist in SpringBoard, so apps used to run the constructor for nothing.
-//   6. STATUSBAR report: screen geometry, the status bar visual provider class UIKit resolves, every provider class
-//      on the device, and any UIStatusBarVisualProviderClassName override. Written 4 s after launch and with every dump.
+//   6. STATUSBAR report (level 1): screen geometry, every provider class on the device, any
+//      UIStatusBarVisualProviderClassName override and the Status Bar Layout setting. Written 4 s after launch and with
+//      every dump.
+//   7. STATUSBAR CHOICE (level 0) and LIVE (level 1) lines: the provider class UIKit chose for the screen, what OITI
+//      returned, and the class each live status bar ended up with. Status Bar Layout (key StatusBarLayout) decides
+//      whether the choice is replaced.
 //
-// X/Y SCALE: the single "scale" value is replaced by separate width (scaleX) and height (scaleY) scales
+// X/Y SCALE (UNTESTED): the single "scale" value is replaced by separate width (scaleX) and height (scaleY) scales
 // applied as one non-uniform transform on the Island window. Contents stretch with it. An existing single "scale"
 // value is used for both axes until scaleX/scaleY are set. Changing any setting now asks the Island window to lay out
 // again, so changes show up immediately instead of at the next layout Apple happens to do.
 //
-// ISLAND SIZE: Apple builds the Island from
+// ISLAND SIZE (UNTESTED as a settings feature; confirmed by a dump experiment): Apple builds the Island from
 // SBUISystemApertureLayoutMetrics. Its sensorRegionSize getter is the root input: _inertSize, minimumCompactSize, the
 // compact padding areas and the minimum corner radius are all derived from it (a hook on _inertSize alone changed
 // derived numbers but no pill sizes, so only sensorRegionSize is hooked). Scaling what it returns makes the Island
@@ -50,13 +58,12 @@
 // Log tags: SESSION PREF GUARD SAFE CHECK STATUSBAR ISLAND LAYOUT CURTAIN GAINMAP COLOR TOUCHPASS BANNER DUMP CLASSQ
 // Levels:   0 = unconditional lines only, 1 = events and state changes, 2 = adds rate-limited per-call lines.
 // Default is 0, so a normal install writes only the SESSION, GUARD, SAFE and CHECK lines (about a dozen per boot,
-// including every warning, plus about 50 STATUSBAR lines in this diagnostic build), runs no polling timer and tracks no windows for dumps. For development raise it:
+// including every warning, plus one STATUSBAR CHOICE line per distinct provider choice), runs no polling timer and tracks no windows for dumps. For development raise it:
 //   defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1     (then sbreload)
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 #import <math.h>
 #import <string.h>
 #import <spawn.h>
@@ -68,7 +75,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-13-sb-a";
+static NSString * const kOITIBuildTag = @"OITI-0.1.1-rc1";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -564,18 +571,12 @@ static void OITIDumpLayoutMetrics(void) {
 
 // Why this exists: with the Island spoof on, some notch iPhones (reported on iPhone XR, 11 and 13 mini) show a red
 // status bar titled "rdar:45025538". That bar looks like UIKit's placeholder when no usable status bar visual
-// provider is chosen for the screen. This function only READS. It prints the screen geometry, the provider class
-// UIKit resolves, every provider class that exists on the device (the candidates for a future fix), and any
-// UIStatusBarVisualProviderClassName override in com.apple.UIKit. Run it with the Island off, then on, and compare.
-
-static NSString *OITIClassOrInstanceName(id value) {
-    if (!value) return @"nil";
-    if (class_isMetaClass(object_getClass(value))) return NSStringFromClass((Class)value);
-    return [NSString stringWithFormat:@"instance of %@", NSStringFromClass([value class])];
-}
+// provider is chosen for the screen. This function only READS (level 1). It prints the screen geometry, every provider
+// class that exists on the device, any UIStatusBarVisualProviderClassName override in com.apple.UIKit and the Status Bar
+// Layout setting. The class UIKit actually chose is logged by the CHOICE and LIVE lines further down.
 
 static void OITIRunStatusBarDiagnostic(NSString *reason) {
-    if (!sLog.enabled) return;
+    if (!sLog.enabled || sLog.level < 1) return;
     @try {
         UIScreen *screen = [UIScreen mainScreen];
         NSString *machine = [OITDeviceInfo machineIdentifier];
@@ -599,26 +600,8 @@ static void OITIRunStatusBarDiagnostic(NSString *reason) {
                                                                   CFSTR("com.apple.UIKit")));
         [sLog logTag:@"STATUSBAR" format:@"OVERRIDE UIStatusBarVisualProviderClassName (com.apple.UIKit) = %@",
          overrideValue ?: @"(not set)"];
-
-        Class base = NSClassFromString(@"_UIStatusBarVisualProvider_iOS");
-        if (!base) {
-            [sLog logTag:@"STATUSBAR" format:@"BASE _UIStatusBarVisualProvider_iOS is MISSING on this system"];
-        } else {
-            Class baseSuper = class_getSuperclass(base);
-            [sLog logTag:@"STATUSBAR" format:@"BASE _UIStatusBarVisualProvider_iOS present, superclass=%@",
-             baseSuper ? NSStringFromClass(baseSuper) : @"nil"];
-            // Class methods that LittleXS / Little16 style tweaks override to choose the provider. Read only.
-            NSArray<NSString *> *selectorNames = @[@"class", @"_implementationClass", @"_statusBarImplementationClass"];
-            for (NSString *selectorName in selectorNames) {
-                SEL selector = NSSelectorFromString(selectorName);
-                if (![base respondsToSelector:selector]) {
-                    [sLog logTag:@"STATUSBAR" format:@"RESOLVE +%@ = (selector not implemented)", selectorName];
-                    continue;
-                }
-                id result = ((id (*)(id, SEL))objc_msgSend)((id)base, selector);
-                [sLog logTag:@"STATUSBAR" format:@"RESOLVE +%@ = %@", selectorName, OITIClassOrInstanceName(result)];
-            }
-        }
+        [sLog logTag:@"STATUSBAR" format:@"LAYOUT Status Bar Layout setting=%@ (auto, off, or a provider class name)",
+         [sOITIPreferences stringForKey:@"StatusBarLayout" default:@"auto"]];
 
         // Every loaded class named _UIStatusBar*Provider*, with its superclass. Covers both the
         // _UIStatusBarVisualProvider_* family and names like _UIStatusBarProvider_DynamicSplit.
@@ -885,6 +868,166 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
     return CGSizeMake(size.width * factorX, size.height * factorY);
 }
 
+// =============================================================================================
+// MARK: Status bar provider choice: log, and an opt-in fix (UNTESTED)
+// =============================================================================================
+
+// With the Island spoof on, some notch iPhones get UIKit's placeholder provider (_UIStatusBarVisualProvider_Fallback,
+// the red "rdar:45025538" bar). UIKit picks the provider in +visualProviderSubclassForScreen:visualProviderInfo:.
+// This hook always calls %orig and logs the answer. What it does with it depends on the Status Bar Layout setting
+// (key StatusBarLayout in com.wilburt.oiti.prefs, a picker on the OITI settings page, default "auto"):
+//   "off"   never changes UIKit's answer.
+//   "auto"  while the Island is on and the device is a notch iPhone in the table, return its native Split provider
+//           when UIKit chose nothing (nil, what a 13 mini returns under the spoof) or Fallback, or (for the 828 and 1080
+//           pixel screens, the widths reported to show the red bar) when UIKit chose anything else. Other devices, and any device UIKit already
+//           handles, are left alone.
+//   <class> a _UIStatusBarVisualProvider_* class name: return that class while the Island is on (for trying layouts).
+// A wrong class can crash SpringBoard, which the respring-loop guard turns into safe mode (hooks off) after 5 launches.
+// The provider is chosen when a status bar is built, so a changed setting needs a respring.
+
+@interface _UIStatusBarVisualProvider_iOS : NSObject
+@end
+
+@interface _UIStatusBar : UIView
+- (Class)_visualProviderClass;
+- (NSString *)_visualProviderClassName;
+- (id)visualProviderInfo;
+- (id)targetScreen;
+@end
+
+static NSString * const kOITIProviderPrefix = @"_UIStatusBarVisualProvider_";
+static NSString * const kOITIFallbackProviderName = @"_UIStatusBarVisualProvider_Fallback";
+static NSString * const kOITIStatusBarLayoutKey = @"StatusBarLayout";
+static NSString * const kOITIStatusBarLayoutAuto = @"auto";
+static NSString * const kOITIStatusBarLayoutOff = @"off";
+static NSMutableSet<NSString *> *sLoggedProviderChoices;
+static NSHashTable *sLoggedStatusBars;
+static NSUInteger sLiveStatusBarLogCount = 0;
+
+static NSInteger OITINativePixelWidth(UIScreen *screen) {
+    CGSize pixels = screen.nativeBounds.size;
+    return (NSInteger)llround(MIN(pixels.width, pixels.height));
+}
+
+// The provider UIKit uses natively (Island off) for a device. A model listed here was read from that device's own
+// log: "CHOICE UIKit chose ..." with islandEnabled=0. Other devices fall back to a guess by native pixel width, using
+// the names in the STATUSBAR PROVIDER dump; they are estimates until someone reports a log.
+static NSString *OITINativeProviderNameForScreen(UIScreen *screen) {
+    NSString *machine = [OITDeviceInfo machineIdentifier];
+    if ([machine isEqualToString:@"iPhone14,4"]) return @"_UIStatusBarVisualProvider_Split1080_Wide";  // iPhone 13 mini
+    switch (OITINativePixelWidth(screen)) {
+        case 828:  return @"_UIStatusBarVisualProvider_Split828";
+        case 1080: return @"_UIStatusBarVisualProvider_Split1080";
+        case 1125: return @"_UIStatusBarVisualProvider_Split1125";
+        case 1170: return @"_UIStatusBarVisualProvider_Split1170";
+        case 1242: return @"_UIStatusBarVisualProvider_Split1242";
+        case 1284: return @"_UIStatusBarVisualProvider_Split1284";
+        default:   return nil;
+    }
+}
+
+// Only classes named _UIStatusBarVisualProvider_* are accepted, so a typo cannot return an unrelated class.
+static Class OITIProviderClassNamed(NSString *name) {
+    if (![name isKindOfClass:[NSString class]] || ![name hasPrefix:kOITIProviderPrefix]) return Nil;
+    return NSClassFromString(name);
+}
+
+static NSString *OITIStatusBarLayoutSetting(void) {
+    NSString *layout = [sOITIPreferences stringForKey:kOITIStatusBarLayoutKey default:kOITIStatusBarLayoutAuto];
+    return layout.length ? layout : kOITIStatusBarLayoutAuto;
+}
+
+static Class OITIStatusBarProviderDecision(Class chosen, id screenArgument, id info) {
+    Class result = chosen;
+    @try {
+        UIScreen *screen = [screenArgument isKindOfClass:[UIScreen class]] ? (UIScreen *)screenArgument : [UIScreen mainScreen];
+        NSString *layout = OITIStatusBarLayoutSetting();
+        NSString *chosenName = chosen ? NSStringFromClass(chosen) : @"nil";
+        NSInteger width = OITINativePixelWidth(screen);
+        Class replacement = Nil;
+        NSString *decision = nil;
+
+        if (!islandEnabled) {
+            decision = @"idle: Island is off";
+        } else if ([layout isEqualToString:kOITIStatusBarLayoutOff]) {
+            decision = @"idle: Status Bar Layout is Off";
+        } else if ([layout isEqualToString:kOITIStatusBarLayoutAuto]) {
+            NSString *nativeName = OITICurrentProfile() ? OITINativeProviderNameForScreen(screen) : nil;
+            Class native = nativeName ? OITIProviderClassNamed(nativeName) : Nil;
+            if (!native) {
+                decision = @"auto idle: no native provider known for this device";
+            } else if (chosen == native) {
+                decision = @"auto idle: UIKit already chose the native provider";
+            } else if (!chosen || [chosenName isEqualToString:kOITIFallbackProviderName]) {
+                replacement = native;
+                decision = @"auto replaced UIKit's empty or Fallback choice with the native provider";
+            } else if (width == 828 || width == 1080) {
+                replacement = native;
+                decision = @"auto replaced UIKit's choice on a width reported to show the red bar";
+            } else {
+                decision = @"auto idle: UIKit chose a real provider";
+            }
+        } else {
+            Class forced = OITIProviderClassNamed(layout);
+            if (forced) {
+                replacement = forced;
+                decision = @"forced the selected layout";
+            } else {
+                decision = @"selected layout is not a loaded _UIStatusBarVisualProvider_* class, ignored";
+            }
+        }
+
+        if (replacement) result = replacement;
+
+        NSString *replacementName = replacement ? NSStringFromClass(replacement) : @"-";
+        NSString *signature = [NSString stringWithFormat:@"%@|%@|%d|%@|%@", chosenName, replacementName,
+                               islandEnabled, layout, NSStringFromCGRect(screen.nativeBounds)];
+        BOOL firstTime = NO;
+        if (sLoggedProviderChoices) {
+            @synchronized (sLoggedProviderChoices) {
+                if (sLoggedProviderChoices.count < 16 && ![sLoggedProviderChoices containsObject:signature]) {
+                    [sLoggedProviderChoices addObject:signature];
+                    firstTime = YES;
+                }
+            }
+        }
+        if (firstTime) {
+            NSString *infoText = info ? [[info description] stringByReplacingOccurrencesOfString:@"\n" withString:@" "] : @"nil";
+            if (infoText.length > 300) infoText = [infoText substringToIndex:300];
+            [sLog logTag:@"STATUSBAR" format:@"CHOICE UIKit chose %@ | screen nativeBounds=%@ scale=%.2f | islandEnabled=%d layout=%@ | %@ -> returning %@ | info=%@",
+             chosenName, NSStringFromCGRect(screen.nativeBounds), (double)screen.scale, islandEnabled, layout,
+             decision, result ? NSStringFromClass(result) : @"nil", infoText];
+        }
+    } @catch (NSException *exception) {
+        [sLog logTag:@"STATUSBAR" format:@"CHOICE ERROR exception %@: %@ (returning UIKit's own answer)",
+         exception.name, exception.reason];
+        result = chosen;
+    }
+    return result;
+}
+
+// One line per live _UIStatusBar (the persistent one, the app switcher's and the cover sheet's): the provider class it
+// actually ended up with, which can differ from the CHOICE line if something else sets the class name.
+static void OITILogLiveStatusBar(_UIStatusBar *bar) {
+    if (!sLog.enabled || sLog.level < 1 || !sLoggedStatusBars) return;
+    @try {
+        @synchronized (sLoggedStatusBars) {
+            if (sLiveStatusBarLogCount >= 24 || [sLoggedStatusBars containsObject:bar]) return;
+            [sLoggedStatusBars addObject:bar];
+            sLiveStatusBarLogCount++;
+        }
+        Class providerClass = [bar _visualProviderClass];
+        NSString *className = [bar respondsToSelector:@selector(_visualProviderClassName)] ? [bar _visualProviderClassName] : nil;
+        id target = [bar targetScreen];
+        [sLog logTag:@"STATUSBAR" format:@"LIVE %p provider=%@ className=%@ target=%@ window=%@ alpha=%.2f hidden=%d",
+         (__bridge void *)bar, providerClass ? NSStringFromClass(providerClass) : @"nil", className ?: @"(none)",
+         [target isKindOfClass:[UIScreen class]] ? NSStringFromCGRect([(UIScreen *)target bounds]) : @"nil",
+         bar.window ? NSStringFromClass([bar.window class]) : @"nil", (double)bar.alpha, bar.hidden];
+    } @catch (NSException *exception) {
+        [sLog logTag:@"STATUSBAR" format:@"LIVE ERROR exception %@: %@", exception.name, exception.reason];
+    }
+}
+
 %group OITIHooks
 
 %hook SBSystemApertureWindow
@@ -1081,6 +1224,30 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 
 %end
 
+// Status bar provider choice. A separate group so it installs and fails independently of the Island hooks. It is
+// installed under the same safe-mode rule, so safe mode turns it off too.
+%group OITIStatusBarHooks
+
+%hook _UIStatusBarVisualProvider_iOS
+
++ (Class)visualProviderSubclassForScreen:(id)screen visualProviderInfo:(id)info {
+    Class chosen = %orig;
+    return OITIStatusBarProviderDecision(chosen, screen, info);
+}
+
+%end
+
+%hook _UIStatusBar
+
+- (void)_prepareVisualProviderIfNeeded {
+    %orig;
+    OITILogLiveStatusBar(self);
+}
+
+%end
+
+%end
+
 // =============================================================================================
 // MARK: Preferences
 // =============================================================================================
@@ -1171,6 +1338,8 @@ static void preferencesChanged(void) {
     sApertureWindows = [NSHashTable weakObjectsHashTable];
     sBannerWindows = [NSHashTable weakObjectsHashTable];
     sLiveApertureWindows = [NSHashTable weakObjectsHashTable];
+    sLoggedProviderChoices = [NSMutableSet set];
+    sLoggedStatusBars = [NSHashTable weakObjectsHashTable];
 
     preferencesChanged();
 
@@ -1189,6 +1358,7 @@ static void preferencesChanged(void) {
         [sLog logTag:@"SESSION" format:@"SAFE MODE: OITI hooks NOT installed. Diagnostics and dumps still work."];
     } else {
         %init(OITIHooks);
+        %init(OITIStatusBarHooks);
         [sLog logTag:@"SESSION" format:@"READY hooks installed (profile=%d diagnostics=%d level=%ld)",
          OITICurrentProfile() != NULL, sLog.enabled, (long)sLog.level];
     }
