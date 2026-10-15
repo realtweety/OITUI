@@ -1,41 +1,54 @@
-OITUI — Project History & Context
-Compiled September 2026. This document exists for two reasons: to live in the OITUI GitHub repo as a project history, and to give any AI assistant (or human contributor) picking up this project full context without having to reconstruct it from scratch.
+# OITUI — Project History & Context
 
-If you are an AI assistant reading this to get up to speed: the most load-bearing sections for you are Hard-Won Technical Lessons and The Debugging Journey below — they capture failure modes that are easy to reintroduce if you reason from the source code alone without knowing the history. Read those before proposing changes to OITI or OITS.
+*Compiled September 2026. This document exists for two reasons: to live in the OITUI GitHub repo as a project history, and to give any AI assistant (or human contributor) picking up this project full context without having to reconstruct it from scratch.*
 
-Quick Facts
-Maintainer	Wilburt (GitHub: realtweety), sole developer
-Target	iPhone 8 Plus (notchless), jailbroken iOS 16.7.x
-Jailbreak	Dopamine (rootless, semi-untethered)
-Min iOS	16.0 (TARGET := iphone:clang:16.5:16.0)
-Build system	Theos, THEOS_PACKAGE_SCHEME=rootless
-Build machine	Mac, macOS 27 beta / Xcode 27 beta (migrated off Windows/WSL)
-Deploy	make package install, over SSH to root@192.168.4.89
-Status	Early development, actively iterating
-What OITUI Is
-OITUI (Order In The User Interface) is an attempt to bring the look and feel of modern iOS — Dynamic Island, Liquid Glass materials, a modern status bar layout — to older jailbroken iPhones that will never officially get it. The guiding line from the README: "If Apple never ships it to older devices, we'll build it ourselves." It's explicitly not a theme or a skin; it's meant to be a real, modular software effort, developed and tested primarily on an iPhone 8 Plus with performance treated as a first-class constraint from day one, not an afterthought.
+**If you are an AI assistant reading this to get up to speed:** the most load-bearing sections for you are *Hard-Won Technical Lessons* and *The Debugging Journey* below — they capture failure modes that are easy to reintroduce if you reason from the source code alone without knowing the history. Read those before proposing changes to OITI or OITS.
 
-OITUI is a family of separate tweaks/packages, each with its own control file and dependency on the shared OITCore library, rather than one monolithic tweak.
+---
 
-The Modules
-OITCore
-The shared foundation every other module links against (OITCore.dylib). It's small but genuinely load-bearing:
+## Quick Facts
 
-OITLog — a toggleable structured logger.
-OITPreferences — a wrapper around CFPreferences (bool/float/int/string/object accessors). Notably patched so floatForKey: also accepts values stored as NSString, because PSEditTextCell specifiers with isNumeric=false store their value as a plain string rather than a number — this was silently breaking OITI's custom X/Y/scale fields before the fix.
-OITDeviceInfo — machine identifier via sysctlbyname, plus isFullScreenDevice/hasDynamicIsland heuristics based on safe-area insets.
-OITNotifications — Darwin notification observe/post helpers, plus OITRequestRespring(), a shared respring mechanism every module's Prefs "Respring" button calls into.
-OITViewUtilities — recursive view-tree traversal, first-descendant-of-class lookup, and OITViewHasAncestorOfClass. This last one turned out to be the single most reused piece of code in the whole project — it's what fixed both OITI's SBFTouchPassThroughView collateral-matching bug and OITS's App Switcher/Control Center mirrored-view bug (see The Debugging Journey).
-An early retain-cycle bug in OITObserveDarwinNotification has been resolved, and the respring listener is now centralized in OITCore's constructor rather than duplicated per-module.
+| | |
+|---|---|
+| Maintainer | Wilburt (GitHub: `realtweety`), sole developer |
+| Target | iPhone 8 Plus (notchless), jailbroken iOS 16.7.x |
+| Jailbreak | Dopamine (rootless, semi-untethered) |
+| Min iOS | 16.0 (`TARGET := iphone:clang:16.5:16.0`) |
+| Build system | Theos, `THEOS_PACKAGE_SCHEME=rootless` |
+| Build machine | Mac, macOS 27 beta / Xcode 27 beta (migrated off Windows/WSL) |
+| Deploy | `make package install`, over SSH to `root@192.168.4.89` |
+| Status | Early development, actively iterating |
 
-OITI (Order In The Island)
-A Dynamic Island simulation for devices that don't have one, forked from VisibleIsland by ethxnn88, used with written permission. Despite sometimes being described casually as "just the island," it already has real functionality:
+---
 
-Per-device Y-offset table with hand-confirmed values for ~13 models (X through 14/13 Pro Max), plus a custom X/Y/scale fallback path for anything unsupported.
-Custom color and opacity for the Island's aperture.
-Notification banner repositioning, with three modes (device-fix, custom position, off).
-"Hide when not in use," and an outline-disable toggle.
-A MobileGestalt hardware-identity spoof (writes ArtworkDeviceSubType) to help pass certain system compatibility checks — this is the feature behind the MobileGestalt incident described below, and it's now backup/restore-safe.
+## What OITUI Is
+
+OITUI (**Order In The User Interface**) is an attempt to bring the look and feel of modern iOS — Dynamic Island, Liquid Glass materials, a modern status bar layout — to older jailbroken iPhones that will never officially get it. The guiding line from the README: *"If Apple never ships it to older devices, we'll build it ourselves."* It's explicitly not a theme or a skin; it's meant to be a real, modular software effort, developed and tested primarily on an iPhone 8 Plus with performance treated as a first-class constraint from day one, not an afterthought.
+
+OITUI is a family of separate tweaks/packages, each with its own `control` file and dependency on the shared `OITCore` library, rather than one monolithic tweak.
+
+---
+
+## The Modules
+
+### OITCore
+The shared foundation every other module links against (`OITCore.dylib`). It's small but genuinely load-bearing:
+- **`OITLog`** — a toggleable structured logger.
+- **`OITPreferences`** — a wrapper around `CFPreferences` (bool/float/int/string/object accessors). Notably patched so `floatForKey:` also accepts values stored as `NSString`, because `PSEditTextCell` specifiers with `isNumeric=false` store their value as a plain string rather than a number — this was silently breaking OITI's custom X/Y/scale fields before the fix.
+- **`OITDeviceInfo`** — machine identifier via `sysctlbyname`, plus `isFullScreenDevice`/`hasDynamicIsland` heuristics based on safe-area insets.
+- **`OITNotifications`** — Darwin notification observe/post helpers, plus `OITRequestRespring()`, a shared respring mechanism every module's Prefs "Respring" button calls into.
+- **`OITViewUtilities`** — recursive view-tree traversal, first-descendant-of-class lookup, and `OITViewHasAncestorOfClass`. This last one turned out to be the single most reused piece of code in the whole project — it's what fixed both OITI's `SBFTouchPassThroughView` collateral-matching bug and OITS's App Switcher/Control Center mirrored-view bug (see *The Debugging Journey*).
+
+An early retain-cycle bug in `OITObserveDarwinNotification` has been resolved, and the respring listener is now centralized in OITCore's constructor rather than duplicated per-module.
+
+### OITI (Order In The Island)
+A Dynamic Island simulation for devices that don't have one, forked from **VisibleIsland by ethxnn88**, used with written permission. Despite sometimes being described casually as "just the island," it already has real functionality:
+- Per-device Y-offset table with hand-confirmed values for ~13 models (X through 14/13 Pro Max), plus a custom X/Y/scale fallback path for anything unsupported.
+- Custom color and opacity for the Island's aperture.
+- Notification banner repositioning, with three modes (device-fix, custom position, off).
+- "Hide when not in use," and an outline-disable toggle.
+- A MobileGestalt hardware-identity spoof (writes `ArtworkDeviceSubType`) to help pass certain system compatibility checks — this is the feature behind the MobileGestalt incident described below, and it's now backup/restore-safe.
+
 OITIPrefs (its preferences bundle) has four controllers: Root, Color, Scale, Notifications.
 
 OITS (Order In The Status)
