@@ -132,3 +132,35 @@ sbreload
 ```
 
 Safe mode: after 5 SpringBoard launches within 120 s OITI stops installing its hooks until `/var/mobile/Library/Preferences/OITISafeMode.plist` is removed (or Darwin notification `com.wilburt.oiti/ClearSafeMode`), then respring. Installing or upgrading the package clears it.
+
+### OITI dump contents
+
+A dump (`touch /tmp/OITIDump.trigger`, or the `dumpstate` helper in `COMMANDS.md`) writes `DUMP` lines for: the environment and preference snapshot (`ENV`, `PREFS`), a window overview (`WINDOWS`), a **`METRICS` section** (every no-argument getter on `SBUISystemApertureLayoutMetrics` and its class, the multiplier in use, and the raw value Apple returned to the hook), each tracked Island window's view and view-controller tree (`WINDOW`, `VC`, `TREE`), and every loaded class with "aperture" in its name (`CLASSES`). Classes named in `/tmp/OITIClassQuery.txt` are described under `CLASSQ` (superclass chain, protocols, ivars, methods). Query at most 5 classes per dump so the logger's backlog limit (4000 lines) does not drop lines.
+
+Useful greps on the phone: `grep METRICS /tmp/OITIDebug.log`, `grep CLASSQ /tmp/OITIDebug.log`, `grep MARK /tmp/OITIDebug.log`. The exact commands, per-state labels (`idle-home`, `lockscreen`, `spotify-collapsed`, `spotify-expanded`, `timer-compact`, ...) and class batches are in `COMMANDS.md`, sections 5 and 6.
+
+A normal install runs at level 0, so none of this is active until `DiagnosticsLevel` is raised.
+
+### OITI status bar layout and provider log (STATUSBAR)
+
+Chases the red status bar titled `rdar:45025538` that some notch iPhones show while the Island spoof is on. With the Island on, UIKit's `+[_UIStatusBarVisualProvider_iOS visualProviderSubclassForScreen:visualProviderInfo:]` returned `nil` on an iPhone 13 mini and iOS fell back to its placeholder. OITI hooks that method (always calling `%orig`) and can return the device's native provider.
+
+Level 0:
+
+- `CHOICE`: what UIKit returned, the screen's native bounds, the Island state, the Status Bar Layout setting, the decision taken and what OITI returned. One line per distinct combination, at most 16.
+
+Level 1 (boot report 4 seconds after SpringBoard starts, and with every dump):
+
+- `BEGIN` / `END`, `SCREEN` (bounds, native bounds, scale, native scale), `TABLE` (device table entry), `OVERRIDE` (`UIStatusBarVisualProviderClassName` in `com.apple.UIKit`, if any), `LAYOUT` (the setting).
+- `PROVIDER`: every loaded class named `_UIStatusBar*Provider*` with its superclass, up to 60.
+- `LIVE`: for each `_UIStatusBar`, from `-_prepareVisualProviderIfNeeded`: the provider class it has, its class name, target screen and window. At most 24.
+
+Status Bar Layout (key `StatusBarLayout`, picker at the bottom of the settings page), only while the Island is on:
+
+- `auto` (default): on a notch iPhone in the device table, return its native provider when UIKit chose nothing or `_UIStatusBarVisualProvider_Fallback`, or, for the 828 and 1080 pixel screens, when UIKit chose anything else. Everything else is left alone.
+- `off`: never change UIKit's answer.
+- a `_UIStatusBarVisualProvider_*` class name: return that class.
+
+Native providers read from a device's own log (Island off): `iPhone14,4` (13 mini) uses `_UIStatusBarVisualProvider_Split1080_Wide`. Other devices use a guess by native pixel width until a log is available.
+
+Steps and commands: `COMMANDS.md`, section 12.

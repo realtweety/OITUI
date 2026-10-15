@@ -10,7 +10,11 @@ fi
 HELPER="/var/jb/usr/libexec/OITIRestoreGestalt"
 
 if [ -x "$HELPER" ]; then
-    "$HELPER" || true
+    if ! "$HELPER"; then
+        echo "OITI: MobileGestalt restore failed; the Dynamic Island spoof may remain until repaired manually." >&2
+    fi
+else
+    echo "OITI: restore helper is missing; the Dynamic Island spoof may remain until repaired manually." >&2
 fi
 
 exit 0

@@ -179,6 +179,54 @@
       <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
+        <key>label</key>
+        <string>STATUS BAR (EXPERIMENTAL)</string>
+        <key>footerText</key>
+        <string>If a red bar reading "rdar:45025538" shows at the top of the screen with the Island on, Automatic picks the status bar layout for your screen. The other layouts are for trying by hand. Respring after changing it. Only used while the Island is on.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSLinkListCell</string>
+        <key>detail</key>
+        <string>PSListItemsController</string>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>StatusBarLayout</string>
+        <key>default</key>
+        <string>auto</string>
+        <key>label</key>
+        <string>Status Bar Layout</string>
+        <key>validTitles</key>
+        <array>
+          <string>Automatic</string>
+          <string>Off (leave as iOS chooses)</string>
+          <string>828 px (iPhone XR, 11)</string>
+          <string>1080 px (iPhone 12 mini, 13 mini)</string>
+          <string>1080 px, wide</string>
+          <string>1125 px (iPhone X, XS, 11 Pro)</string>
+          <string>1170 px (iPhone 12, 13, 14)</string>
+          <string>Dynamic Island, medium</string>
+          <string>Dynamic Island</string>
+        </array>
+        <key>validValues</key>
+        <array>
+          <string>auto</string>
+          <string>off</string>
+          <string>_UIStatusBarVisualProvider_Split828</string>
+          <string>_UIStatusBarVisualProvider_Split1080</string>
+          <string>_UIStatusBarVisualProvider_Split1080_Wide</string>
+          <string>_UIStatusBarVisualProvider_Split1125</string>
+          <string>_UIStatusBarVisualProvider_Split1170</string>
+          <string>_UIStatusBarVisualProvider_DynamicSplitMedium</string>
+          <string>_UIStatusBarVisualProvider_DynamicSplit</string>
+        </array>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
       </dict>
       <dict>
         <key>action</key>
