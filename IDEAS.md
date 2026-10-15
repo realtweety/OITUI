@@ -5,6 +5,8 @@
 ## Up Next (OITI)
 
 - **Island-native content via Apple's own element API.** Research is done enough to start (see `OVERVIEW.md`, "Island research findings"). Order of work: (1) log-only hooks on `-[SBSystemApertureProvidedContentElement initWithIdentifier:contentProvider:]` and `-[SAUISystemApertureManager registerElement:]` while charging, Spotify and a timer are active, plus a protocol dump; (2) a proof-of-concept "hello" element created on demand, modeled on `SBChargingSystemApertureElementProvider`; (3) Island-native notifications (app icon, app name, short message) instead of the stock banner; (4) a queue / stack controller using the authority's ordering logic; (5) progress bars. Open questions: truncation rules, what happens when a second notification arrives while one is showing.
+- **Notification feature requirement:** custom in-Island notifications must have a dedicated Settings toggle (`islandNotificationsEnabled`) and default to off. Turning it off must disable OITI's custom notification element while leaving normal iOS notification behavior intact; existing banner-position controls remain separate.
+- **Hello Animation:**  Play the Hello Animation after a respring, userspace reboot, etc.
 - **Polish list** (owner chose to defer): live color, opacity and banner offset (add a relayout request like the size sliders); banner position at extreme Island sizes; make the X/Y scale relative to Apple's own size (screen width / canvas width, new keys, no migration); maybe lower the Island Height slider minimum (around 0.6 is where 22 pt artwork stops fitting, untested).
 - **OITS** is parked: revert or adapt to the `_UIStatusBarProvider_DynamicSplit` layout class, rebuild the lost diagnostic fixes, restore the scoping guard.
 

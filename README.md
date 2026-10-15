@@ -14,6 +14,10 @@ OITI, or Order In The Island, is a tweak that gives devices without a Dynamic Is
 
 OITCore is a dependency of OITI, so you will need to install OITCore in order to install OITI
 
+### OITI Settings attribution
+
+The new OITI Settings pages take inpiration from Liquid (Gl)Ass made by Winaviation
+
 
 # OITCore
 

@@ -62,9 +62,11 @@ Own content in the Island (notifications, queue, progress bars, volume slider). 
 - Open questions: how to obtain the live `SAUISystemApertureManager`, and what protocol an element must satisfy.
 
 ### Plan (Island content)
-1. **Research hooks (log-only, level 1).** Log calls to `-[SBSystemApertureProvidedContentElement initWithIdentifier:contentProvider:]` and `-[SAUISystemApertureManager registerElement:]` while charging, Spotify and a timer are active (identifiers, content provider classes, layout modes). Capture the manager instance. Add a protocol dump (`objc_copyProtocolList`, names containing "Aperture") and class query batches for the element protocols.
+1. **Research hooks (log-only, level 1).** First dump the device's method encodings and loaded aperture protocols; only then install log-only hooks for `-[SBSystemApertureProvidedContentElement initWithIdentifier:contentProvider:]` and `-[SAUISystemApertureManager registerElement:]` while charging, Spotify and a timer are active (identifiers, content provider classes, layout modes). Capture the manager instance. This order avoids guessing private method ABIs. The dump reports matching protocol names and the relevant registration/provider signatures.
 2. **Proof of concept:** create one custom element (a "hello" leading label) on demand, using the charging provider as the template.
 3. **Then:** Island-native notifications, the queue and stacking logic, progress bars. The volume slider is separate (it needs OITI to load into MediaRemoteUI; see Licensing).
+
+**Notification requirement:** a user-facing notification element must have its own Settings toggle, `islandNotificationsEnabled`, defaulting to `NO`. When off, OITI must not create or present its custom notification element; the existing iOS notification path and OITI's separate banner-position settings remain available.
 
 ## Module state
 

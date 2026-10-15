@@ -55,7 +55,7 @@
 //   SafeModeWindowSeconds (int, default 120)    SafeModeStableSeconds (int, default 45)
 //   SafeModeRestoreGestalt (bool, default NO)   -- on a trip, also run the OITIRestoreGestalt helper
 //
-// Log tags: SESSION PREF GUARD SAFE CHECK STATUSBAR ISLAND LAYOUT CURTAIN GAINMAP COLOR TOUCHPASS BANNER DUMP CLASSQ
+// Log tags: SESSION PREF GUARD SAFE CHECK STATUSBAR ISLAND LAYOUT CURTAIN GAINMAP COLOR TOUCHPASS BANNER APERTURE DUMP CLASSQ
 // Levels:   0 = unconditional lines only, 1 = events and state changes, 2 = adds rate-limited per-call lines.
 // Default is 0, so a normal install writes only the SESSION, GUARD, SAFE and CHECK lines (about a dozen per boot,
 // including every warning, plus one STATUSBAR CHOICE line per distinct provider choice), runs no polling timer and tracks no windows for dumps. For development raise it:
@@ -75,7 +75,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-0.1.1";
+static NSString * const kOITIBuildTag = @"OITI-0.1.1-aperture-r1";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -143,6 +143,8 @@ static const void *kOITIHiddenByUsKey = &kOITIHiddenByUsKey;
 static const void *kOITIColorAppliedKey = &kOITIColorAppliedKey;
 
 static OITLogger *sLog;
+// Weak references: the research hooks observe Apple's manager but must not keep it alive.
+static NSHashTable *sObservedApertureManagers;
 static OITPreferences *sOITIPreferences;
 static NSDictionary<NSString *, NSNumber *> *sLastPrefSnapshot;
 static BOOL sSafeModeActive = NO;
@@ -158,6 +160,23 @@ static int64_t sLastTriggerMtimeNs = 0;
 
 @interface SBSystemApertureWindow : UIView
 @end
+
+@interface SBSystemApertureProvidedContentElement : NSObject
+- (instancetype)initWithIdentifier:(id)identifier contentProvider:(id)contentProvider;
+@end
+
+@interface SAUISystemApertureManager : NSObject
+- (id)registerElement:(id)element;
+@end
+
+static NSString *OITIObjectSummary(id object) {
+    if (!object) return @"nil";
+    if ([object isKindOfClass:[NSString class]] || [object isKindOfClass:[NSNumber class]]) {
+        NSString *value = [object description];
+        return value.length > 120 ? [[value substringToIndex:120] stringByAppendingString:@"…"] : value;
+    }
+    return [NSString stringWithFormat:@"%@@%p", NSStringFromClass([object class]), (__bridge void *)object];
+}
 
 @interface _SBSystemApertureMagiciansCurtainView : UIView
 @end
@@ -420,6 +439,48 @@ static void OITIDumpApertureClasses(void) {
         }
         [sLog logTag:@"DUMP" format:@"CLASSES %@", line];
     }
+
+    // Research the interfaces before installing any hooks against them. Protocol names and method
+    // encodings vary by OS build, so this read-only dump gives us the device's actual ABI first.
+    unsigned int protocolCount = 0;
+    Protocol * __unsafe_unretained *protocols = objc_copyProtocolList(&protocolCount);
+    NSMutableArray<NSString *> *apertureProtocols = [NSMutableArray array];
+    for (unsigned int i = 0; i < protocolCount; i++) {
+        const char *name = protocol_getName(protocols[i]);
+        if (name && strcasestr(name, "aperture")) [apertureProtocols addObject:@(name)];
+    }
+    free(protocols);
+    [apertureProtocols sortUsingSelector:@selector(compare:)];
+    [sLog logTag:@"DUMP" format:@"PROTOCOLS %lu loaded protocol(s) with \"aperture\" in the name",
+     (unsigned long)apertureProtocols.count];
+    for (NSString *name in apertureProtocols) {
+        [sLog logTag:@"DUMP" format:@"PROTOCOL %@", name];
+    }
+
+    // Report only the relevant method type encodings; this is enough to safely declare diagnostic
+    // hooks on this iOS build without flooding the log with every method on every aperture class.
+    NSDictionary<NSString *, NSArray<NSString *> *> *researchSelectors = @{
+        @"SBSystemApertureProvidedContentElement": @[@"initWithIdentifier:contentProvider:"],
+        @"SAUISystemApertureManager": @[@"registerElement:", @"registeredElements", @"orderedElementViewControllers"],
+        @"SBSystemAperturePresentableManager": @[@"registerElement:", @"invalidateElement:"],
+        @"SBUISystemApertureCustomContentProvider": @[@"initWithView:", @"providedView", @"contentColor"],
+        @"SBChargingSystemApertureElementProvider": @[@"powerElementWithBatteryCapacity:"],
+        @"SBSystemApertureElementAuthority": @[@"elementsOrderedByPromotionFromTemporallyOrderedElements:withPreviousOrdering:"],
+    };
+    for (NSString *className in researchSelectors) {
+        Class cls = NSClassFromString(className);
+        if (!cls) {
+            [sLog logTag:@"DUMP" format:@"RESEARCH class %@ not found", className];
+            continue;
+        }
+        for (NSString *selectorName in researchSelectors[className]) {
+            SEL selector = NSSelectorFromString(selectorName);
+            Method method = class_getInstanceMethod(cls, selector);
+            if (!method) method = class_getClassMethod(cls, selector);
+            [sLog logTag:@"DUMP" format:@"RESEARCH %@ %@ encoding=%s",
+             className, selectorName, method ? method_getTypeEncoding(method) : "(method not found)"];
+        }
+    }
 }
 
 static void OITIDumpMethods(Class cls, NSString *kind) {
@@ -640,6 +701,15 @@ static void OITIRunDump(NSString *reason) {
     OITIRunStatusBarDiagnostic(reason);
     OITIDumpLayoutMetrics();
     OITIDumpWindowsOverview();
+
+    NSArray *apertureManagers;
+    @synchronized (sObservedApertureManagers) {
+        apertureManagers = sObservedApertureManagers.allObjects;
+    }
+    [sLog logTag:@"DUMP" format:@"APERTURE-MANAGERS %lu observed", (unsigned long)apertureManagers.count];
+    for (id manager in apertureManagers) {
+        [sLog logTag:@"DUMP" format:@"APERTURE-MANAGER %@", OITIObjectSummary(manager)];
+    }
 
     NSArray<UIView *> *apertureWindows = sApertureWindows.allObjects;
     NSArray<UIView *> *bannerWindows = sBannerWindows.allObjects;
@@ -1070,6 +1140,39 @@ static void OITILogLiveStatusBar(_UIStatusBar *bar) {
 
 %end
 
+%group OITIResearchHooks
+
+%hook SBSystemApertureProvidedContentElement
+
+- (instancetype)initWithIdentifier:(id)identifier contentProvider:(id)contentProvider {
+    id result = %orig;
+    OITLOGGER_LOG_RATED(sLog, 1, @"APERTURE", @"element-init", 8,
+        @"ELEMENT init identifier=%@ provider=%@ result=%@",
+        OITIObjectSummary(identifier), OITIObjectSummary(contentProvider), OITIObjectSummary(result));
+    return result;
+}
+
+%end
+
+%hook SAUISystemApertureManager
+
+- (id)registerElement:(id)element {
+    id result = %orig;
+    if ([sLog isLoggingAtLevel:1] && sObservedApertureManagers) {
+        @synchronized (sObservedApertureManagers) {
+            [sObservedApertureManagers addObject:self];
+        }
+    }
+    OITLOGGER_LOG_RATED(sLog, 1, @"APERTURE", @"register-element", 8,
+        @"REGISTER manager=%@ element=%@ result=%@",
+        OITIObjectSummary(self), OITIObjectSummary(element), OITIObjectSummary(result));
+    return result;
+}
+
+%end
+
+%end
+
 %hook _SBSystemApertureMagiciansCurtainView
 
 - (void)didMoveToWindow {
@@ -1336,6 +1439,7 @@ static void preferencesChanged(void) {
     [sLog logSessionStartWithBuildTag:kOITIBuildTag];
 
     sApertureWindows = [NSHashTable weakObjectsHashTable];
+    sObservedApertureManagers = [NSHashTable weakObjectsHashTable];
     sBannerWindows = [NSHashTable weakObjectsHashTable];
     sLiveApertureWindows = [NSHashTable weakObjectsHashTable];
     sLoggedProviderChoices = [NSMutableSet set];
@@ -1358,6 +1462,7 @@ static void preferencesChanged(void) {
         [sLog logTag:@"SESSION" format:@"SAFE MODE: OITI hooks NOT installed. Diagnostics and dumps still work."];
     } else {
         %init(OITIHooks);
+        %init(OITIResearchHooks);
         %init(OITIStatusBarHooks);
         [sLog logTag:@"SESSION" format:@"READY hooks installed (profile=%d diagnostics=%d level=%ld)",
          OITICurrentProfile() != NULL, sLog.enabled, (long)sLog.level];
