@@ -75,7 +75,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-0.1.1-rc1";
+static NSString * const kOITIBuildTag = @"OITI-0.1.1";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
