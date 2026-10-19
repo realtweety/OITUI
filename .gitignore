@@ -21,3 +21,6 @@ Desktop.ini
 packages/
 *.deb
 .DS_Store
+
+# Syncthing
+.stfolder/

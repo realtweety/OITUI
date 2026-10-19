@@ -1,6 +1,47 @@
 // OITI -- Dynamic Island positioning/appearance module for OITUI (fork of VisibleIsland by ethxnn88).
 //
-// STEP 2 BUILD (UNTESTED on-device). Build tag: see kOITIBuildTag.
+// 0.2.0 BETA 1. Build tag: see kOITIBuildTag.
+//
+// ISLAND NOTIFICATIONS (new in 0.2.0): an incoming notification banner is shown as a real Island element (app icon, title,
+// message) instead of the stock banner. Everything is off by default and fails soft: when any step is not possible the stock
+// banner is left alone.
+//   Observe:  at launch the banner post method of SBNotificationBannerDestination (postNotificationRequest*, found by name
+//             pattern and hooked with the runtime only when its type encoding is v32@0:8@16@24 or v24@0:8@16; the original
+//             always runs first) hands OITI every banner request. NOTIF lines log it at level 1.
+//   Present:  with islandNotificationsEnabled (OITI > Notifications, default OFF) OITI builds an element: an instance of a runtime
+//             subclass of SBSystemApertureProvidedContentElement (OITINotificationElement) that declares hasAlertBehavior and
+//             carries leading (app icon), trailing (short headline), primary (title) and secondary (message) views, each wrapped
+//             in a SBUISystemApertureCustomContentProvider held by a SBUISystemApertureContentProvider. It is registered with
+//             -[SBSystemApertureController registerElement:], the registrar SpringBoard's own providers use, and Apple's code
+//             hosts it like any other element. A new notification replaces the one on screen.
+//   Hide:     islandNotificationsHideBanner (default OFF) fades the stock banner window out until the banner is gone. It only does
+//             so after the element registered.
+//   Style:    IslandNotificationsStyle (0 Compact, 1 Wide, 2 Expanded; default 2) = layout modes min / max / preferred
+//             1/1/1, 1/2/2 and 1/3/3. Expanded is the tuned look; Compact and Wide are experimental.
+//   Content:  no title -> the app name is the headline (or the message when there is no app name); a subtitle is folded into the
+//             message ("subtitle: message"); IslandNotificationsMessageLines (1 to 4, default 2); IslandNotificationsDuration
+//             (2 to 10 s, default 4); IslandNotificationsCornerExtra (points added to the corner radius while the element is up,
+//             default 0, restored afterwards).
+//   Touch:    a tap runs what tapping the stock banner runs (NCNotificationViewController -_executeDefaultAction: on the still-alive
+//             but faded banner), so it opens the conversation or screen the notification would open; if that banner is gone it falls
+//             back to the default action's URL and then to launching the app. Swipe up dismisses. Recognizers sit on Apple's
+//             SAUIElementView and on the Island window (the window ones only take touches that start inside the element) and are
+//             removed with the element.
+//   Haptic:   NotificationHaptic (default OFF) plays one short light haptic per banner request, independent of the Island
+//             notification setting. It does not fire for notifications delivered straight to the lock screen.
+//   Safety:   -[SAUISystemApertureManager _reevaluatePromotedElements] is wrapped. While one of OITI's elements is live, an exception
+//             there (where a malformed element crashed SpringBoard during development) is caught and logged (ELEMENT GUARD) and the
+//             element is invalidated; after 5 catches element creation stays off until the next respring. With none of OITI's
+//             elements live the exception is rethrown unchanged. The element's identifier is an OITIElementIdentifierStub, because
+//             Apple calls -elementIdentifier and -clientIdentifier ("com.apple.springboard") on it.
+//   Diagnostics: the element trace, VCFOR / VCINIT / AUTH and real-element logging live in the OITIDiagnosticHooks group, installed
+//             only at DiagnosticsLevel >= 1. Developer tools (level 1): touch /tmp/OITIPoC.trigger shows a test element,
+//             /tmp/OITIPoCSample.txt (title, message, bundle id, subtitle, one per line) sets its text,
+//             IslandNotificationsHelloOnBoot runs it 10 s after launch, IslandNotificationsDevLayout and
+//             IslandNotificationsPoCRegistrar (0 controller, 1 manager) override internals. Log tags: NOTIF (banner hook) and
+//             ELEMENT (the element's life, see DIAGNOSTICS.md).
+//   Every ObjC call into Apple's private classes is looked up at run time (NSClassFromString, respondsToSelector, @try) and
+//   fails soft with an ELEMENT or NOTIF log line.
 //
 // STATUS BAR FIX: with the Island spoof on, some notch iPhones showed a red "rdar:45025538" status bar. UIKit returned no
 // provider class for the spoofed device (nil) and fell back to its placeholder. Two hooks that always call %orig watch
@@ -55,7 +96,7 @@
 //   SafeModeWindowSeconds (int, default 120)    SafeModeStableSeconds (int, default 45)
 //   SafeModeRestoreGestalt (bool, default NO)   -- on a trip, also run the OITIRestoreGestalt helper
 //
-// Log tags: SESSION PREF GUARD SAFE CHECK STATUSBAR ISLAND LAYOUT CURTAIN GAINMAP COLOR TOUCHPASS BANNER APERTURE DUMP CLASSQ
+// Log tags: SESSION PREF GUARD SAFE CHECK STATUSBAR ISLAND LAYOUT CURTAIN GAINMAP COLOR TOUCHPASS BANNER APERTURE DUMP CLASSQ NOTIF ELEMENT
 // Levels:   0 = unconditional lines only, 1 = events and state changes, 2 = adds rate-limited per-call lines.
 // Default is 0, so a normal install writes only the SESSION, GUARD, SAFE and CHECK lines (about a dozen per boot,
 // including every warning, plus one STATUSBAR CHOICE line per distinct provider choice), runs no polling timer and tracks no windows for dumps. For development raise it:
@@ -64,6 +105,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <math.h>
 #import <string.h>
 #import <spawn.h>
@@ -75,7 +117,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-0.1.1-aperture-r1";
+static NSString * const kOITIBuildTag = @"OITI-0.2.0-beta.1";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -84,6 +126,7 @@ static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/Clea
 static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
 static NSString * const kOITIDumpTriggerPath = @"/tmp/OITIDump.trigger";
 static NSString * const kOITIClassQueryPath = @"/tmp/OITIClassQuery.txt";
+static NSString * const kOITIPoCTriggerPath = @"/tmp/OITIPoC.trigger";
 
 static NSString * const kOITIBootLogPath = @"/var/mobile/Library/Preferences/OITIBootLog.plist";
 static NSString * const kOITISafeModePath = @"/var/mobile/Library/Preferences/OITISafeMode.plist";
@@ -130,6 +173,9 @@ static BOOL colorEnabled;
 static BOOL transEnabled;
 static BOOL scaleEnabled;
 static BOOL lineDisabled;
+static BOOL islandNotificationsEnabled;       // OITI > Notifications: show notifications as an Island element (default NO)
+static BOOL islandNotificationsHideBanner;    // also fade the stock banner window out while our element is up (default NO)
+static CGFloat sIslandNoticeDuration = 4.0;   // seconds, key IslandNotificationsDuration, clamped 1 - 15
 
 // Diagnostics and safe-mode settings (prefs keys listed in the header comment).
 static BOOL sGuardEnabled = YES;
@@ -177,6 +223,41 @@ static NSString *OITIObjectSummary(id object) {
     }
     return [NSString stringWithFormat:@"%@@%p", NSStringFromClass([object class]), (__bridge void *)object];
 }
+
+// Private classes used by Island Notifications. They are declared only so the compiler knows the
+// selectors; every use goes through NSClassFromString at run time (a direct class reference would not link).
+@interface SBUISystemApertureCustomContentProvider : NSObject
+- (instancetype)initWithView:(UIView *)view;
+@end
+
+@interface SBUISystemApertureContentProvider : NSObject
+- (void)setLeadingContentViewProvider:(id)provider;
+- (void)setTrailingContentViewProvider:(id)provider;
+- (void)setMinimalContentViewProvider:(id)provider;
+- (void)setPrimaryContentViewProvider:(id)provider;
+- (void)setSecondaryContentViewProvider:(id)provider;
+@end
+
+@interface SBSystemApertureController : NSObject
+- (id)registerElement:(id)element;
+@end
+
+@interface SBSystemApertureElementAuthority : NSObject
+@end
+
+@interface SBNotificationBannerDestination : NSObject
+- (id)presentedBanner;
+@end
+
+@interface UIImage (OITIPrivate)
++ (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)bundleIdentifier format:(int)format scale:(CGFloat)scale;
+@end
+
+@interface UIWindow (OITIPrivate)
++ (NSArray *)allWindowsIncludingInternalWindows:(BOOL)includeInternal onlyVisibleWindows:(BOOL)onlyVisible;
+@end
+
+static void OITIRunPoCElement(NSString *reason);
 
 @interface _SBSystemApertureMagiciansCurtainView : UIView
 @end
@@ -229,6 +310,12 @@ static NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
         @"xPos": @(xPos), @"yPos": @(yPos), @"xNot": @(xNot), @"yNot": @(yNot),
         @"red": @(red), @"green": @(green), @"blue": @(blue), @"alpha": @(alpha), @"scale": @(scale), @"scaleX": @(scaleX), @"scaleY": @(scaleY),
         @"MetricsSensorW": @(sMetricsSensorX), @"MetricsSensorH": @(sMetricsSensorY),
+        @"islandNotificationsEnabled": @(islandNotificationsEnabled),
+        @"islandNotificationsHideBanner": @(islandNotificationsHideBanner),
+        @"IslandNotificationsDuration": @(sIslandNoticeDuration),
+        @"IslandNotificationsStyle": @([sOITIPreferences floatForKey:@"IslandNotificationsStyle" default:2]),
+        @"NotificationHaptic": @([sOITIPreferences boolForKey:@"NotificationHaptic" default:NO]),
+        @"IslandNotificationsMessageLines": @([sOITIPreferences floatForKey:@"IslandNotificationsMessageLines" default:2]),
     };
 }
 
@@ -724,11 +811,17 @@ static void OITIRunDump(NSString *reason) {
     [sLog logTag:@"DUMP" format:@"=== END #%lu ===", (unsigned long)index];
 }
 
-static int64_t OITITriggerFileMtimeNs(void) {
+static int64_t OITIFileMtimeNs(NSString *path) {
     struct stat st;
-    if (stat(kOITIDumpTriggerPath.fileSystemRepresentation, &st) != 0) return 0;
+    if (stat(path.fileSystemRepresentation, &st) != 0) return 0;
     return (int64_t)st.st_mtimespec.tv_sec * 1000000000ll + (int64_t)st.st_mtimespec.tv_nsec;
 }
+
+static int64_t OITITriggerFileMtimeNs(void) {
+    return OITIFileMtimeNs(kOITIDumpTriggerPath);
+}
+
+static int64_t sLastPoCTriggerMtimeNs = 0;
 
 // Polls the trigger file once a second, but only while diagnostics are on (DiagnosticsLevel >= 1), so a normal
 // install runs no timer at all. Detects by modification time, never deletes (/tmp is sticky).
@@ -736,6 +829,7 @@ static void OITIUpdateDumpTrigger(void) {
     BOOL wanted = sLog.enabled && sLog.level >= 1;
     if (wanted && !sDumpTriggerTimer) {
         sLastTriggerMtimeNs = OITITriggerFileMtimeNs();
+        sLastPoCTriggerMtimeNs = OITIFileMtimeNs(kOITIPoCTriggerPath);
         sDumpTriggerTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
         dispatch_source_set_timer(sDumpTriggerTimer,
                                   dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
@@ -747,9 +841,14 @@ static void OITIUpdateDumpTrigger(void) {
                 sLastTriggerMtimeNs = mtime;
                 OITIRunDump(@"trigger-file");
             }
+            int64_t pocMtime = OITIFileMtimeNs(kOITIPoCTriggerPath);
+            if (pocMtime != 0 && pocMtime != sLastPoCTriggerMtimeNs) {
+                sLastPoCTriggerMtimeNs = pocMtime;
+                OITIRunPoCElement(@"trigger-file");
+            }
         });
         dispatch_resume(sDumpTriggerTimer);
-        [sLog logLevel:1 tag:@"DUMP" format:@"trigger polling started (touch %@)", kOITIDumpTriggerPath];
+        [sLog logLevel:1 tag:@"DUMP" format:@"trigger polling started (touch %@ for a dump, %@ for the hello element)", kOITIDumpTriggerPath, kOITIPoCTriggerPath];
     } else if (!wanted && sDumpTriggerTimer) {
         dispatch_source_cancel(sDumpTriggerTimer);
         sDumpTriggerTimer = nil;
@@ -1098,6 +1197,1170 @@ static void OITILogLiveStatusBar(_UIStatusBar *bar) {
     }
 }
 
+// =============================================================================================
+// MARK: Island notifications (beta)
+// =============================================================================================
+
+// Apple's SAUISystemApertureManager instances. sRegisteringManager is the one that last registered an element (the
+// manager for the Island content scene); sSeenManager is the first one that answered orderedElementViewControllers.
+// Weak: we must not keep Apple's objects alive.
+static __weak id sRegisteringManager;
+static __weak id sSeenManager;
+static __weak id sSystemApertureController;   // SBSystemApertureController: the registrar real providers use
+
+// Strong references to the elements we registered (element, provider, registration, view), so ARC does not release
+// them while the Island still shows them.
+static NSMutableArray<NSDictionary *> *sIslandNoticeItems;
+static id sPendingNoticeRequest;   // the NCNotificationRequest being presented, kept with its element for the tap action
+
+// Layout-mode numbers copied from the first real (Apple) element that registers, so our element can use values Apple
+// itself uses instead of guessed enum numbers. Keys: preferred, minimum, maximum.
+static NSDictionary<NSString *, NSNumber *> *sRealLayoutValues;
+static BOOL sPoCOurRegistrationInFlight = NO;
+static BOOL sPoCDisabledAfterFailure = NO;   // set after 5 guard catches; cleared only by a respring
+static int sPoCFailureCount = 0;
+
+static const void *kOITIBannerOriginalAlphaKey = &kOITIBannerOriginalAlphaKey;
+static BOOL sBannerHideActive = NO;
+static BOOL sBannerHideSawBanner = NO;
+static BOOL sBannerHideCanProbe = NO;
+static CFAbsoluteTime sBannerHideStart = 0;
+static __weak id sBannerHideDestination;
+
+
+// Apple's element code calls -elementIdentifier on the "identifier" argument (a plain NSString crashed with
+// "-[__NSCFString elementIdentifier]: unrecognized selector"), so the identifier must be an object. This stub answers
+// elementIdentifier with our string and logs every other selector Apple sends it (once each), answering with the string
+// for anything identifier-like and nil otherwise. The ELEMENT STUB lines show what Apple really wants from it.
+@interface OITIElementIdentifierStub : NSObject <NSCopying>
+@property (nonatomic, copy) NSString *value;
+@end
+
+static NSMutableSet<NSString *> *sStubSelectorsSeen;
+
+@implementation OITIElementIdentifierStub
+- (id)elementIdentifier { return self.value; }
+- (id)clientIdentifier { return @"com.apple.springboard"; }
+- (id)copyWithZone:(NSZone *)zone { return self; }
+- (NSString *)description { return self.value ?: @"OITIElementIdentifierStub"; }
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)selector {
+    return [super methodSignatureForSelector:selector] ?: [NSMethodSignature signatureWithObjCTypes:"@@:"];
+}
+- (void)forwardInvocation:(NSInvocation *)invocation {
+    NSString *name = NSStringFromSelector(invocation.selector);
+    @synchronized ([OITIElementIdentifierStub class]) {
+        if (!sStubSelectorsSeen) sStubSelectorsSeen = [NSMutableSet set];
+        if (![sStubSelectorsSeen containsObject:name]) {
+            [sStubSelectorsSeen addObject:name];
+            [sLog logTag:@"ELEMENT" format:@"STUB identifier was sent -%@ (answering with %@)", name,
+             [name rangeOfString:@"dentifier" options:NSCaseInsensitiveSearch].location != NSNotFound ? @"the string" : @"nil"];
+        }
+    }
+    id result = [name rangeOfString:@"dentifier" options:NSCaseInsensitiveSearch].location != NSNotFound ? self.value : nil;
+    [invocation setReturnValue:&result];
+}
+@end
+
+// Returns an object-valued, no-argument selector's result, or nil if the object does not implement it with that shape.
+static id OITISafeObject(id object, NSString *selectorName) {
+    if (!object || !selectorName.length) return nil;
+    SEL selector = NSSelectorFromString(selectorName);
+    if (![object respondsToSelector:selector]) return nil;
+    NSMethodSignature *signature = [object methodSignatureForSelector:selector];
+    if (!signature || signature.numberOfArguments != 2 || strcmp(signature.methodReturnType, "@") != 0) return nil;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    return [object performSelector:selector];
+#pragma clang diagnostic pop
+}
+
+static NSString *OITISafeString(id object, NSString *selectorName) {
+    id value = OITISafeObject(object, selectorName);
+    return [value isKindOfClass:[NSString class]] ? (NSString *)value : nil;
+}
+
+static NSNumber *OITIKVCNumber(id object, NSString *key) {
+    if (!object) return nil;
+    @try {
+        id value = [object valueForKey:key];
+        return [value isKindOfClass:[NSNumber class]] ? (NSNumber *)value : nil;
+    } @catch (NSException *exception) {
+        return nil;
+    }
+}
+
+static id OITIKVCObject(id object, NSString *key) {
+    if (!object) return nil;
+    @try { return [object valueForKey:key]; } @catch (NSException *exception) { return nil; }
+}
+
+// Which parts an element has (class name or nil). Real elements versus ours: the nil that breaks Apple's code is in here.
+static NSString *OITIElementPartsSummary(id element) {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *key in @[@"viewProvider", @"elementHost", @"layoutHost", @"leadingView", @"trailingView", @"minimalView",
+                            @"primaryView", @"secondaryView", @"actionView", @"element"]) {
+        id value = OITIKVCObject(element, key);
+        [parts addObject:[NSString stringWithFormat:@"%@=%@", key, value ? NSStringFromClass([value class]) : @"nil"]];
+    }
+    return [parts componentsJoinedByString:@" "];
+}
+
+// "[idA, idB]" for an array of elements (their elementIdentifier), for the authority ordering log.
+static NSString *OITIElementIdentifierList(id elements) {
+    if (![elements conformsToProtocol:@protocol(NSFastEnumeration)]) return OITIObjectSummary(elements);
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (id element in elements) {
+        id identifier = OITIKVCObject(element, @"elementIdentifier");
+        [names addObject:[NSString stringWithFormat:@"%@", identifier ?: NSStringFromClass([element class])]];
+    }
+    return [NSString stringWithFormat:@"[%@]", [names componentsJoinedByString:@", "]];
+}
+
+// One line describing an element: class, both identifiers, layout modes.
+static NSString *OITIElementValuesSummary(id element) {
+    id elementID = OITIKVCObject(element, @"elementIdentifier");
+    id clientID = OITIKVCObject(element, @"clientIdentifier");
+    return [NSString stringWithFormat:@"%@ elementIdentifier=%@(%@) clientIdentifier=%@(%@) layoutMode=%@ preferred=%@ min=%@ max=%@",
+            NSStringFromClass([element class]), elementID, elementID ? NSStringFromClass([elementID class]) : @"nil",
+            clientID, clientID ? NSStringFromClass([clientID class]) : @"nil",
+            OITIKVCNumber(element, @"layoutMode"), OITIKVCNumber(element, @"preferredLayoutMode"),
+            OITIKVCNumber(element, @"minimumSupportedLayoutMode"), OITIKVCNumber(element, @"maximumSupportedLayoutMode")];
+}
+
+// Called after Apple registers one of its own elements: log its values and remember the first set of layout modes.
+static void OITICaptureRealElement(id element) {
+    if (!element) return;
+    if ([sLog isLoggingAtLevel:1]) {
+        [sLog logTag:@"ELEMENT" format:@"REAL element %@", OITIElementValuesSummary(element)];
+        [sLog logTag:@"ELEMENT" format:@"REAL parts   %@: %@", NSStringFromClass([element class]), OITIElementPartsSummary(element)];
+    }
+    if (sRealLayoutValues) return;
+    NSNumber *preferred = OITIKVCNumber(element, @"preferredLayoutMode");
+    NSNumber *minimum = OITIKVCNumber(element, @"minimumSupportedLayoutMode");
+    NSNumber *maximum = OITIKVCNumber(element, @"maximumSupportedLayoutMode");
+    if (preferred && minimum && maximum) {
+        sRealLayoutValues = @{ @"preferred": preferred, @"minimum": minimum, @"maximum": maximum };
+        [sLog logTag:@"ELEMENT" format:@"remembered real layout values preferred=%@ min=%@ max=%@ from %@", preferred, minimum, maximum,
+         NSStringFromClass([element class])];
+    }
+}
+
+// ---- Trace of what Apple asks OITI's element ------------------------------------------------
+static NSMutableSet<NSString *> *sTraceSeen;
+
+static BOOL OITIIsOurElement(id element) {
+    if (!element || !sIslandNoticeItems.count) return NO;
+    for (NSDictionary *item in sIslandNoticeItems) {
+        if (item[@"element"] == element) return YES;
+    }
+    return NO;
+}
+
+// Logs one TRACE line per distinct message per test run, in the order they first happen.
+static void OITITraceOnce(NSString *message) {
+    @synchronized ([NSNull null]) {
+        if (!sTraceSeen) sTraceSeen = [NSMutableSet set];
+        if ([sTraceSeen containsObject:message]) return;
+        [sTraceSeen addObject:message];
+    }
+    [sLog logTag:@"ELEMENT" format:@"TRACE %@", message];
+}
+
+// ---- OITI's element class ---------------------------------------------------------------------
+// A runtime subclass of Apple's SBSystemApertureProvidedContentElement that declares itself an alert (see poc9 note).
+static Class OITINoticeElementClass(void) {
+    static Class elementClass;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class base = NSClassFromString(@"SBSystemApertureProvidedContentElement");
+        if (!base) return;
+        elementClass = objc_getClass("OITINotificationElement");
+        if (elementClass) return;
+        Class created = objc_allocateClassPair(base, "OITINotificationElement", 0);
+        if (!created) return;
+        class_addMethod(created, NSSelectorFromString(@"hasAlertBehavior"),
+                        imp_implementationWithBlock(^BOOL(id receiver) { return YES; }), "B16@0:8");
+        class_addMethod(created, NSSelectorFromString(@"hasActivityBehavior"),
+                        imp_implementationWithBlock(^BOOL(id receiver) { return NO; }), "B16@0:8");
+        class_addMethod(created, NSSelectorFromString(@"hasIndicatorBehavior"),
+                        imp_implementationWithBlock(^BOOL(id receiver) { return NO; }), "B16@0:8");
+        class_addMethod(created, NSSelectorFromString(@"preferredAlertingDuration:"),
+                        imp_implementationWithBlock(^double(id receiver, double suggested) { return (double)sIslandNoticeDuration; }),
+                        "d24@0:8d16");
+        objc_registerClassPair(created);
+        elementClass = created;
+    });
+    return elementClass;
+}
+
+static NSString *OITIShortText(NSString *text, NSUInteger limit) {
+    if (!text.length) return @"";
+    NSString *flat = [text stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+    return flat.length > limit ? [[flat substringToIndex:limit] stringByAppendingString:@"…"] : flat;
+}
+
+// Pulls what we need out of an NCNotificationRequest without a header: every access is looked up at run time.
+static NSDictionary<NSString *, NSString *> *OITINoticeInfoFromRequest(id request) {
+    id content = OITISafeObject(request, @"content");
+    NSString *bundleID = OITISafeString(request, @"sectionIdentifier") ?: OITISafeString(request, @"bundleIdentifier") ?: @"";
+    NSString *appName = OITISafeString(content, @"header") ?: @"";
+    NSString *title = OITISafeString(content, @"title") ?: @"";
+    NSString *subtitle = OITISafeString(content, @"subtitle") ?: @"";
+    NSString *message = OITISafeString(content, @"message") ?: @"";
+    return @{ @"bundleID": bundleID, @"appName": appName, @"title": title, @"subtitle": subtitle, @"message": message };
+}
+
+static UIImage *OITIRoundedIcon(UIImage *image, CGFloat side) {
+    if (!image) return nil;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side)];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        CGRect bounds = CGRectMake(0, 0, side, side);
+        [[UIBezierPath bezierPathWithRoundedRect:bounds cornerRadius:side * 0.225] addClip];
+        [image drawInRect:bounds];
+    }];
+}
+
+// The two views of the compact element, like the lock element's leading and trailing views: the app icon on the left
+// and a short label on the right. Both are sized (frame = what they need) because Apple asks them sizeThatFits.
+static void OITIBuildNoticeViews(NSDictionary<NSString *, NSString *> *info, UIView **leadingOut, UIView **trailingOut,
+                                 UIView **primaryOut, UIView **secondaryOut) {
+    NSString *bundleID = info[@"bundleID"] ?: @"";
+    NSString *title = info[@"title"] ?: @"";
+    NSString *subtitle = info[@"subtitle"] ?: @"";
+    NSString *message = info[@"message"] ?: @"";
+    NSString *appName = info[@"appName"] ?: @"";
+    if (!appName.length && bundleID.length) appName = [bundleID componentsSeparatedByString:@"."].lastObject ?: @"";
+
+    // Headline and body. No title: the app name becomes the headline, or the message itself if there is no app name either.
+    NSString *headline = title.length ? title : (appName.length ? appName : message);
+    NSString *body = message;
+    if (subtitle.length) body = message.length ? [NSString stringWithFormat:@"%@: %@", subtitle, message] : subtitle;
+    if (!title.length && !appName.length) body = @"";   // the message already is the headline
+
+    UIImage *icon = nil;
+    if (bundleID.length && [UIImage respondsToSelector:@selector(_applicationIconImageForBundleIdentifier:format:scale:)]) {
+        icon = [UIImage _applicationIconImageForBundleIdentifier:bundleID format:0 scale:[UIScreen mainScreen].scale];
+    }
+    UIImage *small = OITIRoundedIcon(icon, 22);
+    UIView *leading;
+    if (small) {
+        UIImageView *iconView = [[UIImageView alloc] initWithImage:small];
+        iconView.frame = CGRectMake(0, 0, 22, 22);
+        leading = iconView;
+    } else {
+        UILabel *initial = [[UILabel alloc] init];
+        initial.font = [UIFont systemFontOfSize:13 weight:UIFontWeightBold];
+        initial.textColor = [UIColor whiteColor];
+        NSString *name = appName.length ? appName : headline;
+        initial.text = name.length ? [name substringToIndex:1] : @"•";
+        [initial sizeToFit];
+        leading = initial;
+    }
+
+    UILabel *trailing = [[UILabel alloc] init];
+    trailing.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    trailing.textColor = [UIColor whiteColor];
+    trailing.text = OITIShortText(headline, 12);
+    [trailing sizeToFit];
+
+    // Expanded layouts (primary / secondary): the headline and the message, like Apple's own expanded alerts.
+    UILabel *primary = [[UILabel alloc] init];
+    primary.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    primary.textColor = [UIColor whiteColor];
+    primary.lineBreakMode = NSLineBreakByTruncatingTail;
+    primary.text = headline;
+    CGSize primarySize = [primary sizeThatFits:CGSizeMake(260, CGFLOAT_MAX)];
+    primary.frame = CGRectMake(0, 0, MIN(260, ceil(primarySize.width)), ceil(primarySize.height));
+
+    NSInteger lines = MAX(1, MIN(4, lround([sOITIPreferences floatForKey:@"IslandNotificationsMessageLines" default:2])));
+    UILabel *secondary = [[UILabel alloc] init];
+    secondary.font = [UIFont systemFontOfSize:13];
+    secondary.textColor = [UIColor colorWithWhite:1.0 alpha:0.8];
+    secondary.numberOfLines = lines;
+    secondary.lineBreakMode = NSLineBreakByTruncatingTail;
+    secondary.text = body;
+    CGSize secondarySize = [secondary sizeThatFits:CGSizeMake(260, CGFLOAT_MAX)];
+    secondary.frame = CGRectMake(0, 0, MIN(260, ceil(secondarySize.width)), ceil(secondarySize.height));
+
+    *leadingOut = leading;
+    *trailingOut = trailing;
+    *primaryOut = primary;
+    *secondaryOut = secondary;
+}
+
+// ---- Corner radius adjustment (IslandNotificationsCornerExtra) -------------------------------
+static NSMutableArray<NSDictionary *> *sCornerAdjusted;   // {view, original} for every layer we changed
+
+static NSString *OITICornerChain(UIView *view) {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    UIView *up = view.superview;
+    for (int i = 0; up && i < 9; i++, up = up.superview) {
+        [parts addObject:[NSString stringWithFormat:@"%@(r=%.1f mask=%d curve=%@ size=%@)", NSStringFromClass([up class]),
+                          up.layer.cornerRadius, up.layer.masksToBounds, up.layer.cornerCurve,
+                          NSStringFromCGSize(up.bounds.size)]];
+    }
+    return [parts componentsJoinedByString:@" < "];
+}
+
+// Adds `extra` points to the corner radius of every rounded ancestor. The first time a layer is touched its original
+// radius is remembered, so applying twice does not compound and OITIRestoreCorners puts everything back.
+static void OITIApplyCornerExtra(UIView *view, CGFloat extra) {
+    if (extra == 0 || !view) return;
+    if (!sCornerAdjusted) sCornerAdjusted = [NSMutableArray array];
+    for (UIView *up = view.superview; up; up = up.superview) {
+        if (up.layer.cornerRadius <= 0.5) continue;
+        NSDictionary *existing = nil;
+        for (NSDictionary *entry in sCornerAdjusted) {
+            if (entry[@"view"] == up) { existing = entry; break; }
+        }
+        if (!existing) {
+            existing = @{ @"view": up, @"original": @(up.layer.cornerRadius) };
+            [sCornerAdjusted addObject:existing];
+        }
+        up.layer.cornerRadius = [existing[@"original"] doubleValue] + extra;
+    }
+}
+
+static void OITIRestoreCorners(void) {
+    for (NSDictionary *entry in sCornerAdjusted) {
+        UIView *view = entry[@"view"];
+        view.layer.cornerRadius = [entry[@"original"] doubleValue];
+    }
+    [sCornerAdjusted removeAllObjects];
+}
+
+// Where a view ended up: class, frames, visibility, window and the first superviews. For the ELEMENT VIEWS line.
+static NSString *OITIViewDiag(UIView *view) {
+    if (!view) return @"nil";
+    NSMutableArray<NSString *> *chain = [NSMutableArray array];
+    UIView *up = view.superview;
+    for (int i = 0; up && i < 4; i++, up = up.superview) [chain addObject:NSStringFromClass([up class])];
+    CGRect inWindow = view.window ? [view convertRect:view.bounds toView:nil] : CGRectZero;
+    return [NSString stringWithFormat:@"%@ frame=%@ inWindow=%@ hidden=%d alpha=%.2f window=%@ chain=%@",
+            NSStringFromClass([view class]), NSStringFromCGRect(view.frame), NSStringFromCGRect(inWindow), view.hidden, view.alpha,
+            view.window ? NSStringFromClass([view.window class]) : @"nil", [chain componentsJoinedByString:@" < "]];
+}
+
+// ---- Stock banner fade (optional, islandNotificationsHideBanner) ----------------------------
+
+static NSArray<UIWindow *> *OITIBannerWindowsNow(void) {
+    NSMutableArray<UIWindow *> *result = [NSMutableArray array];
+    for (UIView *view in sBannerWindows.allObjects) {
+        if ([view isKindOfClass:[UIWindow class]]) [result addObject:(UIWindow *)view];
+    }
+    if (!result.count && [UIWindow respondsToSelector:@selector(allWindowsIncludingInternalWindows:onlyVisibleWindows:)]) {
+        Class bannerClass = NSClassFromString(@"SBBannerWindow");
+        for (UIWindow *window in [UIWindow allWindowsIncludingInternalWindows:YES onlyVisibleWindows:NO]) {
+            if (bannerClass && [window isKindOfClass:bannerClass]) [result addObject:window];
+        }
+    }
+    return result;
+}
+
+static void OITIHideBannerWindows(void) {
+    for (UIWindow *window in OITIBannerWindowsNow()) {
+        if (!objc_getAssociatedObject(window, kOITIBannerOriginalAlphaKey)) {
+            objc_setAssociatedObject(window, kOITIBannerOriginalAlphaKey, @(window.alpha), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if (window.alpha != 0) window.alpha = 0;
+    }
+}
+
+static void OITIRestoreBannerWindows(void) {
+    for (UIWindow *window in OITIBannerWindowsNow()) {
+        NSNumber *original = objc_getAssociatedObject(window, kOITIBannerOriginalAlphaKey);
+        if (!original) continue;
+        CGFloat value = original.doubleValue;
+        window.alpha = value > 0.01 ? value : 1.0;
+        objc_setAssociatedObject(window, kOITIBannerOriginalAlphaKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
+// Keeps the banner window faded until Apple says no banner is presented any more (or a hard cap passes), then puts
+// it back exactly as it was. Without a usable presentedBanner getter it simply waits a fixed time.
+static void OITIPollBannerHide(void) {
+    if (!sBannerHideActive) return;
+    CFAbsoluteTime elapsed = CFAbsoluteTimeGetCurrent() - sBannerHideStart;
+    id presented = sBannerHideCanProbe ? OITISafeObject(sBannerHideDestination, @"presentedBanner") : nil;
+    if (presented) sBannerHideSawBanner = YES;
+
+    BOOL done;
+    if (sBannerHideCanProbe) {
+        done = (sBannerHideSawBanner && !presented && elapsed > 1.0) || (!sBannerHideSawBanner && elapsed > 4.0) || elapsed > 12.0;
+    } else {
+        done = elapsed > 7.0;
+    }
+    if (done) {
+        OITIRestoreBannerWindows();
+        sBannerHideActive = NO;
+        [sLog logLevel:1 tag:@"NOTIF" format:@"stock banner window restored after %.1fs (sawBanner=%d probe=%d)",
+         elapsed, sBannerHideSawBanner, sBannerHideCanProbe];
+        return;
+    }
+    OITIHideBannerWindows();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        OITIPollBannerHide();
+    });
+}
+
+static void OITIBeginBannerHide(id destination) {
+    sBannerHideDestination = destination;
+    sBannerHideCanProbe = [destination respondsToSelector:NSSelectorFromString(@"presentedBanner")];
+    sBannerHideStart = CFAbsoluteTimeGetCurrent();
+    sBannerHideSawBanner = NO;
+    OITIHideBannerWindows();
+    if (!sBannerHideActive) {
+        sBannerHideActive = YES;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            OITIPollBannerHide();
+        });
+    }
+}
+
+// ---- The element ----------------------------------------------------------------------------
+
+// Logs the method list of an object's class once per class (level 1 only; this is research output).
+static void OITIProbeObject(id object, NSString *role) {
+    if (!object || ![sLog isLoggingAtLevel:1]) return;
+    static NSMutableSet<NSString *> *probed;
+    if (!probed) probed = [NSMutableSet set];
+    NSString *className = NSStringFromClass([object class]);
+    if ([probed containsObject:className]) return;
+    [probed addObject:className];
+    [sLog logTag:@"ELEMENT" format:@"PROBE %@ = %@", role, className];
+    OITIDumpMethods([object class], @"-");
+    OITIDumpMethods(object_getClass([object class]), @"+");
+}
+
+// ---- Tap / swipe on the element ----------------------------------------------------------------
+static void OITIOpenApp(NSString *bundleID) {
+    if (!bundleID.length) return;
+    UIApplication *application = [UIApplication sharedApplication];
+    SEL launch = NSSelectorFromString(@"launchApplicationWithIdentifier:suspended:");
+    if ([application respondsToSelector:launch]) {
+        BOOL ok = ((BOOL (*)(id, SEL, id, BOOL))objc_msgSend)(application, launch, bundleID, NO);
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"open app %@ via launchApplicationWithIdentifier: -> %d", bundleID, ok];
+        return;
+    }
+    Class workspaceClass = NSClassFromString(@"LSApplicationWorkspace");
+    SEL defaultWorkspace = NSSelectorFromString(@"defaultWorkspace");
+    SEL open = NSSelectorFromString(@"openApplicationWithBundleID:");
+    if (workspaceClass && [workspaceClass respondsToSelector:defaultWorkspace]) {
+        id workspace = ((id (*)(id, SEL))objc_msgSend)(workspaceClass, defaultWorkspace);
+        if ([workspace respondsToSelector:open]) {
+            BOOL ok = ((BOOL (*)(id, SEL, id))objc_msgSend)(workspace, open, bundleID);
+            [sLog logLevel:1 tag:@"ELEMENT" format:@"open app %@ via LSApplicationWorkspace -> %d", bundleID, ok];
+            return;
+        }
+    }
+    [sLog logTag:@"ELEMENT" format:@"could not open %@: no launch API found", bundleID];
+}
+
+// ---- Tap action ----------------------------------------------------------------------------------
+// A tap on the notification element does what tapping the stock banner does (see OITIExecuteStockBannerTap). If that banner is
+// gone (for example the element outlived it), the tap uses the notification's default action URL when it has one, and otherwise
+// launches the app.
+static NSURL *OITIDefaultActionURL(id request) {
+    id action = OITIKVCObject(request, @"defaultAction");
+    for (NSString *key in @[@"url", @"launchURL", @"targetURL"]) {
+        id value = OITIKVCObject(action, key);
+        if ([value isKindOfClass:[NSURL class]]) return value;
+    }
+    return nil;
+}
+
+static BOOL OITIOpenURL(NSURL *url) {
+    UIApplication *application = [UIApplication sharedApplication];
+    SEL open = NSSelectorFromString(@"openURL:options:completionHandler:");
+    if (![application respondsToSelector:open]) return NO;
+    ((void (*)(id, SEL, id, id, id))objc_msgSend)(application, open, url, @{}, nil);
+    [sLog logLevel:1 tag:@"ELEMENT" format:@"open url %@ via openURL:options:completionHandler:", url];
+    return YES;
+}
+
+// The stock banner is still alive (only faded) while OITI's element shows, so a tap can run exactly what a tap on it runs:
+// NCNotificationViewController -_executeDefaultAction: (found with a class dump on 16.7.16; the banner's view controllers are
+// BNContentViewController > SBNotificationPresentableViewController > NCNotificationShortLookViewController). Apple's own code
+// then opens the right conversation, dismisses the banner and clears the notification.
+static void OITICollectNotificationViewControllers(UIViewController *controller, Class base, int depth,
+                                                   NSMutableArray<UIViewController *> *found) {
+    if (!controller || depth > 8 || found.count > 8) return;
+    if (base && [controller isKindOfClass:base]) [found addObject:controller];
+    for (UIViewController *child in controller.childViewControllers) OITICollectNotificationViewControllers(child, base, depth + 1, found);
+    if (controller.presentedViewController) OITICollectNotificationViewControllers(controller.presentedViewController, base, depth + 1, found);
+}
+
+static BOOL OITIExecuteStockBannerTap(id request) {
+    Class base = NSClassFromString(@"NCNotificationViewController");
+    SEL execute = NSSelectorFromString(@"_executeDefaultAction:");
+    if (!base) return NO;
+    NSMutableArray<UIViewController *> *found = [NSMutableArray array];
+    for (UIWindow *window in OITIBannerWindowsNow()) OITICollectNotificationViewControllers(window.rootViewController, base, 0, found);
+    UIViewController *target = nil;
+    for (UIViewController *controller in found) {
+        id candidate = OITIKVCObject(controller, @"notificationRequest");
+        if (request && candidate && (candidate == request || [candidate isEqual:request])) { target = controller; break; }
+    }
+    if (!target && request && found.count == 1) target = found.firstObject;   // one banner on screen, and this one has a request
+    if (!target || ![target respondsToSelector:execute]) {
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"tap: no matching stock banner (found %lu), using the fallback", (unsigned long)found.count];
+        return NO;
+    }
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(target, execute, YES);
+    [sLog logLevel:1 tag:@"ELEMENT" format:@"tap ran -_executeDefaultAction: on %@", NSStringFromClass([target class])];
+    return YES;
+}
+
+// A tap recognizer that logs where touches land (TOUCH lines), so a tap that never reaches us is visible in the log.
+@interface OITINoticeTapRecognizer : UITapGestureRecognizer
+@property (nonatomic, copy) NSString *label;
+@end
+
+@implementation OITINoticeTapRecognizer
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = touches.anyObject;
+    [sLog logLevel:1 tag:@"ELEMENT" format:@"TOUCH began (%@) hit=%@ at %@", self.label, NSStringFromClass([touch.view class]),
+     NSStringFromCGPoint([touch locationInView:nil])];
+    [super touchesBegan:touches withEvent:event];
+}
+@end
+
+@interface OITINoticeActions : NSObject <UIGestureRecognizerDelegate>
+@property (nonatomic, copy) NSString *bundleID;
+@property (nonatomic, strong) id request;
+@property (nonatomic, weak) UIView *host;
+@property (nonatomic, assign) BOOL handled;
+@property (nonatomic, copy) void (^dismiss)(void);
+- (void)handleTap:(UIGestureRecognizer *)recognizer;
+- (void)handleSwipe:(UIGestureRecognizer *)recognizer;
+@end
+
+@implementation OITINoticeActions
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    return YES;
+}
+// The window-level recognizers only take touches that start inside the notification element.
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldReceiveTouch:(UITouch *)touch {
+    if (![recognizer.view isKindOfClass:[UIWindow class]]) return YES;
+    UIView *host = self.host;
+    return host && CGRectContainsPoint(host.bounds, [touch locationInView:host]);
+}
+- (void)handleTap:(UIGestureRecognizer *)recognizer {
+    if (self.handled) return;
+    self.handled = YES;
+    NSURL *url = OITIDefaultActionURL(self.request);
+    [sLog logLevel:1 tag:@"ELEMENT" format:@"TAP on the notification element (%@) seen by %@ url=%@", self.bundleID,
+     NSStringFromClass([recognizer.view class]), url];
+    if (!OITIExecuteStockBannerTap(self.request)) {   // fallbacks: the default action's URL, then just the app
+        if (!(url && OITIOpenURL(url))) OITIOpenApp(self.bundleID);
+    }
+    if (self.dismiss) self.dismiss();
+}
+- (void)handleSwipe:(UIGestureRecognizer *)recognizer {
+    if (self.handled) return;
+    self.handled = YES;
+    [sLog logLevel:1 tag:@"ELEMENT" format:@"SWIPE up on the notification element seen by %@", NSStringFromClass([recognizer.view class])];
+    if (self.dismiss) self.dismiss();
+}
+@end
+
+// Tries the invalidation selectors Apple's assertion-like objects usually have. Logs what it found.
+static void OITIDismissNoticeItem(NSDictionary *item) {
+    OITIRestoreCorners();
+    for (UIGestureRecognizer *recognizer in item[@"recognizers"]) [recognizer.view removeGestureRecognizer:recognizer];
+    if ([item isKindOfClass:[NSMutableDictionary class]]) {   // break the item -> actions -> dismiss block -> item cycle
+        NSMutableDictionary *mutableItem = (NSMutableDictionary *)item;
+        [mutableItem removeObjectForKey:@"actions"];
+        [mutableItem removeObjectForKey:@"recognizers"];
+    }
+    id registration = item[@"registration"];
+    id manager = item[@"manager"];
+    id element = item[@"element"];
+    BOOL done = NO;
+    SEL realInvalidate = NSSelectorFromString(@"invalidateWithReason:layoutModeChangeReason:");
+    if (registration && [registration respondsToSelector:realInvalidate]) {
+        @try {
+            ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(registration, realInvalidate, @"OITI", 0);
+            done = YES;
+            [sLog logLevel:1 tag:@"ELEMENT" format:@"dismissed element via invalidateWithReason:layoutModeChangeReason:"];
+        } @catch (NSException *exception) {
+            [sLog logTag:@"ELEMENT" format:@"dismiss via invalidateWithReason:layoutModeChangeReason: threw %@", exception.name];
+        }
+    }
+    for (NSString *name in done ? @[] : @[@"invalidate", @"invalidateWithReason:"]) {
+        SEL selector = NSSelectorFromString(name);
+        if (registration && [registration respondsToSelector:selector]) {
+            @try {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                if ([name hasSuffix:@":"]) [registration performSelector:selector withObject:@"OITI"];
+                else [registration performSelector:selector];
+#pragma clang diagnostic pop
+                done = YES;
+            } @catch (NSException *exception) {
+                [sLog logTag:@"ELEMENT" format:@"dismiss via %@ threw %@", name, exception.name];
+            }
+            if (done) {
+                [sLog logLevel:1 tag:@"ELEMENT" format:@"dismissed element via registration %@", name];
+                break;
+            }
+        }
+    }
+    if (!done && manager && element) {
+        for (NSString *name in @[@"unregisterElement:", @"removeElement:", @"invalidateElement:"]) {
+            SEL selector = NSSelectorFromString(name);
+            if (![manager respondsToSelector:selector]) continue;
+            @try {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                [manager performSelector:selector withObject:element];
+#pragma clang diagnostic pop
+                done = YES;
+            } @catch (NSException *exception) {
+                [sLog logTag:@"ELEMENT" format:@"dismiss via manager %@ threw %@", name, exception.name];
+            }
+            if (done) {
+                [sLog logLevel:1 tag:@"ELEMENT" format:@"dismissed element via manager %@", name];
+                break;
+            }
+        }
+    }
+    if (!done) {
+        [sLog logTag:@"ELEMENT" format:@"could not dismiss the element: registration %@ has no invalidate selector. See PROBE lines.",
+         OITIObjectSummary(registration)];
+    }
+}
+
+// Creates one element from `info`, registers it and schedules its removal. Main thread only.
+static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSString *reason) {
+    @synchronized ([NSNull null]) { [sTraceSeen removeAllObjects]; }
+    if (sIslandNoticeItems.count) {   // a new notification replaces the one on screen
+        NSArray<NSDictionary *> *previous = [sIslandNoticeItems copy];
+        [sIslandNoticeItems removeAllObjects];
+        for (NSDictionary *old in previous) OITIDismissNoticeItem(old);
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"replaced %lu element(s) already on screen", (unsigned long)previous.count];
+    }
+    if (sPoCDisabledAfterFailure) {
+        [sLog logTag:@"ELEMENT" format:@"element creation is off until the next respring (the promotion guard caught %d exceptions)", sPoCFailureCount];
+        return NO;
+    }
+    id manager = sRegisteringManager ?: sSeenManager;
+    NSInteger registrarVariant = (NSInteger)[sOITIPreferences floatForKey:@"IslandNotificationsPoCRegistrar" default:0];
+    id registrar = (registrarVariant == 0 && sSystemApertureController) ? sSystemApertureController : manager;
+    if (!registrar) {
+        [sLog logTag:@"ELEMENT" format:@"no SAUISystemApertureManager seen yet (%@): lock/unlock once or open the Island, then retry", reason];
+        return NO;
+    }
+    Class elementClass = OITINoticeElementClass();
+    Class providerClass = NSClassFromString(@"SBUISystemApertureCustomContentProvider");
+    if (!elementClass || !providerClass) {
+        [sLog logTag:@"ELEMENT" format:@"missing class: element=%d provider=%d", elementClass != nil, providerClass != nil];
+        return NO;
+    }
+    if (![registrar respondsToSelector:@selector(registerElement:)]) {
+        [sLog logTag:@"ELEMENT" format:@"registrar %@ does not respond to registerElement:", OITIObjectSummary(registrar)];
+        return NO;
+    }
+
+    @try {
+        Class containerClass = NSClassFromString(@"SBUISystemApertureContentProvider");
+        if (!containerClass) {
+            [sLog logTag:@"ELEMENT" format:@"missing class SBUISystemApertureContentProvider"];
+            return NO;
+        }
+        UIView *leadingView = nil, *trailingView = nil, *primaryView = nil, *secondaryView = nil;
+        OITIBuildNoticeViews(info, &leadingView, &trailingView, &primaryView, &secondaryView);
+        id leadingProvider = [[providerClass alloc] initWithView:leadingView];
+        id trailingProvider = [[providerClass alloc] initWithView:trailingView];
+        id primaryProvider = [[providerClass alloc] initWithView:primaryView];
+        id secondaryProvider = [[providerClass alloc] initWithView:secondaryView];
+        id provider = [[containerClass alloc] init];   // the container real elements use
+        [(SBUISystemApertureContentProvider *)provider setLeadingContentViewProvider:leadingProvider];
+        [(SBUISystemApertureContentProvider *)provider setTrailingContentViewProvider:trailingProvider];
+        [(SBUISystemApertureContentProvider *)provider setPrimaryContentViewProvider:primaryProvider];
+        [(SBUISystemApertureContentProvider *)provider setSecondaryContentViewProvider:secondaryProvider];
+        NSString *identifier = [NSString stringWithFormat:@"com.wilburt.oiti.notification.%@", [NSUUID UUID].UUIDString];
+        OITIElementIdentifierStub *identifierObject = [OITIElementIdentifierStub new];
+        identifierObject.value = identifier;
+        id element = [[elementClass alloc] initWithIdentifier:identifierObject contentProvider:provider];
+        if (!provider || !element) {
+            [sLog logTag:@"ELEMENT" format:@"creation failed: provider=%@ element=%@", OITIObjectSummary(provider), OITIObjectSummary(element)];
+            return NO;
+        }
+        OITIProbeObject(provider, @"provider");
+        OITIProbeObject(leadingProvider, @"leadingProvider");
+        OITIProbeObject(element, @"element");
+
+        [sLog logTag:@"ELEMENT" format:@"our element before layout values: %@", OITIElementValuesSummary(element)];
+        [sLog logTag:@"ELEMENT" format:@"our element parts: %@", OITIElementPartsSummary(element)];
+        NSInteger style = (NSInteger)lround([sOITIPreferences floatForKey:@"IslandNotificationsStyle" default:2]);
+        NSInteger layoutVariant = style == 0 ? 1 : (style == 1 ? 6 : 5);   // compact, wide, expanded
+        NSInteger devVariant = (NSInteger)lround([sOITIPreferences floatForKey:@"IslandNotificationsDevLayout" default:-1]);
+        if (devVariant >= 0) layoutVariant = devVariant;
+        NSNumber *wantMin = nil, *wantMax = nil, *wantPreferred = nil;
+        if (layoutVariant == 1) {            // compact only, exactly the lock element's 1 / 1 / 1
+            wantMin = @1; wantMax = @1; wantPreferred = @1;
+        } else if (layoutVariant == 2 && sRealLayoutValues) {   // copy the first real element
+            wantMin = sRealLayoutValues[@"minimum"]; wantMax = sRealLayoutValues[@"maximum"]; wantPreferred = sRealLayoutValues[@"preferred"];
+        } else if (layoutVariant == 3) {     // compact up to the widest range Apple uses (in-call: 1 / 3 / 2)
+            wantMin = @1; wantMax = @3; wantPreferred = @2;
+        } else if (layoutVariant == 4) {     // the charging alert's values: min -1 / preferred 2 / max 2
+            wantMin = @(-1); wantMax = @2; wantPreferred = @2;
+        } else if (layoutVariant == 5) {     // expanded first: min 1 / preferred 3 / max 3
+            wantMin = @1; wantMax = @3; wantPreferred = @3;
+        } else if (layoutVariant == 6) {     // wide: the status bar pill's values, min 1 / preferred 2 / max 2
+            wantMin = @1; wantMax = @2; wantPreferred = @2;
+        }
+        if (wantMin && wantMax && wantPreferred) {
+            SEL setPreferred = NSSelectorFromString(@"setPreferredLayoutMode:");
+            SEL setMinimum = NSSelectorFromString(@"setMinimumSupportedLayoutMode:");
+            SEL setMaximum = NSSelectorFromString(@"setMaximumSupportedLayoutMode:");
+            if ([element respondsToSelector:setMinimum]) ((void (*)(id, SEL, NSInteger))objc_msgSend)(element, setMinimum, wantMin.integerValue);
+            if ([element respondsToSelector:setMaximum]) ((void (*)(id, SEL, NSInteger))objc_msgSend)(element, setMaximum, wantMax.integerValue);
+            if ([element respondsToSelector:setPreferred]) ((void (*)(id, SEL, NSInteger))objc_msgSend)(element, setPreferred, wantPreferred.integerValue);
+            [sLog logTag:@"ELEMENT" format:@"layout variant %ld applied: %@", (long)layoutVariant, OITIElementValuesSummary(element)];
+        } else {
+            [sLog logTag:@"ELEMENT" format:@"layout variant %ld: leaving the element's defaults", (long)layoutVariant];
+        }
+
+        if (!sIslandNoticeItems) sIslandNoticeItems = [NSMutableArray array];
+        NSMutableDictionary *item = [NSMutableDictionary dictionary];
+        item[@"leadingView"] = leadingView; item[@"trailingView"] = trailingView; item[@"leadingProvider"] = leadingProvider;
+        item[@"primaryView"] = primaryView; item[@"secondaryView"] = secondaryView;
+        item[@"primaryProvider"] = primaryProvider; item[@"secondaryProvider"] = secondaryProvider;
+        item[@"trailingProvider"] = trailingProvider; item[@"provider"] = provider; item[@"element"] = element; item[@"manager"] = registrar;
+        if (sPendingNoticeRequest) item[@"request"] = sPendingNoticeRequest;
+        [sIslandNoticeItems addObject:item];   // added BEFORE registering so the promotion guard knows an OITI element is live
+
+        sPoCOurRegistrationInFlight = YES;
+        id registration = [(SAUISystemApertureManager *)registrar registerElement:element];
+        sPoCOurRegistrationInFlight = NO;
+        if (registration) item[@"registration"] = registration;
+        OITIProbeObject(registration, @"registration");
+        [sLog logTag:@"ELEMENT" format:@"registered %@ (%@) registrar=%@ registration=%@ duration=%.1fs", identifier, reason,
+         OITIObjectSummary(registrar), OITIObjectSummary(registration), (double)sIslandNoticeDuration];
+
+        if ([sLog isLoggingAtLevel:1]) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if (![sIslandNoticeItems containsObject:item]) return;
+                [sLog logTag:@"ELEMENT" format:@"VIEWS element: %@", OITIElementValuesSummary(element)];
+                [sLog logTag:@"ELEMENT" format:@"VIEWS parts:   %@", OITIElementPartsSummary(element)];
+                [sLog logTag:@"ELEMENT" format:@"VIEWS leading:   %@", OITIViewDiag(leadingView)];
+                [sLog logTag:@"ELEMENT" format:@"VIEWS trailing:  %@", OITIViewDiag(trailingView)];
+                [sLog logTag:@"ELEMENT" format:@"VIEWS primary:   %@", OITIViewDiag(primaryView)];
+                [sLog logTag:@"ELEMENT" format:@"VIEWS secondary: %@", OITIViewDiag(secondaryView)];
+                [sLog logTag:@"ELEMENT" format:@"CORNERS leading chain: %@", OITICornerChain(leadingView)];
+            });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                OITIRunDump(@"poc-element");
+            });
+        }
+        NSString *noticeBundleID = info[@"bundleID"];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (![sIslandNoticeItems containsObject:item]) return;
+            UIView *host = nil;
+            for (UIView *up = leadingView.superview; up; up = up.superview) {
+                if ([NSStringFromClass([up class]) isEqualToString:@"SAUIElementView"]) { host = up; break; }
+            }
+            if (!host) host = leadingView.superview;
+            if (!host) {
+                [sLog logTag:@"ELEMENT" format:@"GESTURES: no host view found, tap and swipe unavailable"];
+                return;
+            }
+            OITINoticeActions *actions = [OITINoticeActions new];
+            actions.bundleID = noticeBundleID;
+            actions.request = item[@"request"];
+            actions.host = host;
+            actions.dismiss = ^{
+                if (![sIslandNoticeItems containsObject:item]) return;
+                [sIslandNoticeItems removeObject:item];
+                OITIDismissNoticeItem(item);
+            };
+            // Recognizers on the element view and on the Island window (the window ones only take touches that start inside the
+            // element): some touches may be taken before they reach the element view, and the TOUCH lines show which route works.
+            NSMutableArray<UIGestureRecognizer *> *recognizers = [NSMutableArray array];
+            NSArray<UIView *> *targets = host.window ? @[host, host.window] : @[host];
+            for (UIView *target in targets) {
+                OITINoticeTapRecognizer *tap = [[OITINoticeTapRecognizer alloc] initWithTarget:actions action:@selector(handleTap:)];
+                tap.label = [target isKindOfClass:[UIWindow class]] ? @"window" : @"element";
+                tap.cancelsTouchesInView = NO;
+                tap.delegate = actions;
+                UISwipeGestureRecognizer *swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:actions action:@selector(handleSwipe:)];
+                swipe.direction = UISwipeGestureRecognizerDirectionUp;
+                swipe.cancelsTouchesInView = NO;
+                swipe.delegate = actions;
+                [target addGestureRecognizer:tap];
+                [target addGestureRecognizer:swipe];
+                [recognizers addObject:tap];
+                [recognizers addObject:swipe];
+            }
+            item[@"actions"] = actions; item[@"recognizers"] = recognizers;
+            [sLog logLevel:1 tag:@"ELEMENT" format:@"GESTURES attached to %@ and %@ (frame %@, interaction %d)", NSStringFromClass([host class]),
+             host.window ? NSStringFromClass([host.window class]) : @"no window", NSStringFromCGRect(host.frame), host.userInteractionEnabled];
+        });
+
+        CGFloat cornerExtra = [sOITIPreferences floatForKey:@"IslandNotificationsCornerExtra" default:0];
+        if (isfinite(cornerExtra) && cornerExtra != 0) {
+            cornerExtra = MAX(-20.0, MIN(20.0, cornerExtra));
+            for (NSNumber *delay in @[@0.7, @1.3]) {   // after Apple's expansion animation, and once more in case it re-lays out
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    if (![sIslandNoticeItems containsObject:item]) return;
+                    OITIApplyCornerExtra(leadingView, cornerExtra);
+                    [sLog logLevel:1 tag:@"ELEMENT" format:@"CORNERS applied %+.1f: %@", (double)cornerExtra, OITICornerChain(leadingView)];
+                });
+            }
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sIslandNoticeDuration * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (![sIslandNoticeItems containsObject:item]) return;   // already dismissed by the promotion guard
+            OITIDismissNoticeItem(item);
+            [sIslandNoticeItems removeObject:item];
+        });
+        return YES;
+    } @catch (NSException *exception) {
+        sPoCOurRegistrationInFlight = NO;
+        [sLog logTag:@"ELEMENT" format:@"exception while creating/registering the element: %@ %@", exception.name, exception.reason];
+        return NO;
+    }
+}
+
+// The developer trigger (touch /tmp/OITIPoC.trigger). Independent of the islandNotificationsEnabled setting because
+// it never reacts to a notification: it is a manual test of the element mechanism.
+static void OITIRunPoCElement(NSString *reason) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSDictionary *info = @{ @"bundleID": @"com.apple.Preferences", @"appName": @"OITI",
+                                @"title": @"Island Notification", @"subtitle": @"",
+                                @"message": @"Hello from OITI Island Notifications" };
+        // /tmp/OITIPoCSample.txt (optional): title, message, bundle id, subtitle, one per line, to try long text or no title.
+        NSString *sample = [NSString stringWithContentsOfFile:@"/tmp/OITIPoCSample.txt" encoding:NSUTF8StringEncoding error:nil];
+        if (sample.length) {
+            NSArray<NSString *> *rows = [sample componentsSeparatedByString:@"\n"];
+            NSString *(^row)(NSUInteger) = ^NSString *(NSUInteger i) { return i < rows.count ? rows[i] : @""; };
+            NSString *sampleBundle = row(2).length ? row(2) : @"com.apple.MobileSMS";
+            info = @{ @"bundleID": sampleBundle, @"appName": @"", @"title": row(0), @"subtitle": row(3), @"message": row(1) };
+        }
+        OITIPresentNoticeElement(info, reason);
+    });
+}
+
+// ---- Haptic ----------------------------------------------------------------------------------
+// One short light tap per banner request. Respects the system's own haptics setting (UIKit decides).
+static void OITIPlayNotificationHaptic(void) {
+    static CFAbsoluteTime lastHaptic = 0;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (now - lastHaptic < 0.4) return;   // one banner can be posted more than once
+    lastHaptic = now;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        static UIImpactFeedbackGenerator *generator;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        if (!generator) generator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+#pragma clang diagnostic pop
+        [generator prepare];
+        [generator impactOccurredWithIntensity:0.8];
+        [sLog logLevel:1 tag:@"NOTIF" format:@"haptic played"];
+    });
+}
+
+// A banner request arrived. Always safe: log-only unless the feature is on.
+static void OITIHandleBannerRequest(id destination, id request) {
+    if ([sOITIPreferences boolForKey:@"NotificationHaptic" default:NO]) OITIPlayNotificationHaptic();
+    if (!islandNotificationsEnabled && !(sLog.enabled && sLog.level >= 1)) return;
+    NSDictionary<NSString *, NSString *> *info = OITINoticeInfoFromRequest(request);
+    [sLog logLevel:1 tag:@"NOTIF" format:@"banner request %@ bundle=%@ app=%@ title=%@ message=%@ (feature %@)",
+     OITIObjectSummary(request), info[@"bundleID"], OITIShortText(info[@"appName"], 30), OITIShortText(info[@"title"], 40),
+     OITIShortText(info[@"message"], 60), islandNotificationsEnabled ? @"on" : @"off"];
+    if (!islandNotificationsEnabled) return;
+
+    __weak id weakDestination = destination;
+    id requestRef = request;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        sPendingNoticeRequest = requestRef;
+        BOOL shown = OITIPresentNoticeElement(info, @"notification");
+        sPendingNoticeRequest = nil;
+        // Only fade the stock banner when our element really went up, so a failure never swallows a notification.
+        if (shown && islandNotificationsHideBanner) OITIBeginBannerHide(weakDestination);
+    });
+}
+
+// ---- Banner hook, installed at run time ----------------------------------------------------
+// The selector that posts a banner differs between iOS versions (the one seen in a 2023 trace is not on 16.7.16), so the
+// hook is found by name pattern in the class chain and installed with the runtime, only if the type encoding has one of
+// the two shapes this build can forward exactly (void return, one or two object arguments). The replacement always calls
+// Apple's original first. Nothing matching = nothing installed, and the candidates are logged for the next build.
+
+static NSString *OITIFirstBannerMethodName(Class cls, const char **encodingOut, int *argsOut) {
+    for (Class c = cls; c && c != [NSObject class]; c = class_getSuperclass(c)) {
+        unsigned int count = 0;
+        Method *methods = class_copyMethodList(c, &count);
+        NSString *found = nil;
+        for (unsigned int i = 0; i < count && !found; i++) {
+            NSString *name = NSStringFromSelector(method_getName(methods[i]));
+            const char *encoding = method_getTypeEncoding(methods[i]);
+            if (!encoding || ![name hasPrefix:@"postNotificationRequest"]) continue;
+            if (strcmp(encoding, "v32@0:8@16@24") == 0) { found = name; *argsOut = 2; *encodingOut = encoding; }
+            else if (strcmp(encoding, "v24@0:8@16") == 0) { found = name; *argsOut = 1; *encodingOut = encoding; }
+        }
+        free(methods);
+        if (found) return found;
+    }
+    return nil;
+}
+
+// Logs every method in the class chain that looks related to posting or presenting a banner (selector and encoding).
+static void OITILogBannerCandidates(Class cls) {
+    NSArray<NSString *> *keywords = @[@"post", @"present", @"request", @"banner", @"notification", @"modify", @"add"];
+    NSUInteger lines = 0;
+    for (Class c = cls; c && c != [NSObject class] && lines < 160; c = class_getSuperclass(c)) {
+        unsigned int count = 0;
+        Method *methods = class_copyMethodList(c, &count);
+        [sLog logTag:@"NOTIF" format:@"CANDIDATES %@: %u method(s)", NSStringFromClass(c), count];
+        for (unsigned int i = 0; i < count && lines < 160; i++) {
+            NSString *name = NSStringFromSelector(method_getName(methods[i]));
+            BOOL related = NO;
+            for (NSString *keyword in keywords) {
+                if ([name rangeOfString:keyword options:NSCaseInsensitiveSearch].location != NSNotFound) { related = YES; break; }
+            }
+            if (!related) continue;
+            [sLog logTag:@"NOTIF" format:@"  %@ [%s]", name, method_getTypeEncoding(methods[i]) ?: "?"];
+            lines++;
+        }
+        free(methods);
+    }
+}
+
+// ---- Promotion guard --------------------------------------------------------------------------
+// poc2's element made -[SAUISystemApertureManager _reevaluatePromotedElements] throw inside -[NSArray insertObject:atIndex:],
+// which took SpringBoard down on the next layout pass. While one of OITI's elements is live, the exception is caught and
+// logged (name, reason, first stack symbols), the element is invalidated and creation is switched off until a respring.
+// With none of OITI's elements live the exception is rethrown untouched, so Apple's own behavior never changes.
+static void OITIInstallPromotionGuard(void) {
+    Class managerClass = NSClassFromString(@"SAUISystemApertureManager");
+    SEL selector = NSSelectorFromString(@"_reevaluatePromotedElements");
+    Method method = managerClass ? class_getInstanceMethod(managerClass, selector) : NULL;
+    const char *encoding = method ? method_getTypeEncoding(method) : NULL;
+    if (!encoding || strcmp(encoding, "v16@0:8") != 0) {
+        [sLog logTag:@"ELEMENT" format:@"promotion guard NOT installed: method=%d encoding=%s", method != NULL, encoding ?: "(none)"];
+        return;
+    }
+    IMP original = method_getImplementation(method);
+    IMP replacement = imp_implementationWithBlock(^(id receiver) {
+        @try {
+            ((void (*)(id, SEL))original)(receiver, selector);
+        } @catch (NSException *exception) {
+            if (!sIslandNoticeItems.count) @throw;
+            NSArray *stack = exception.callStackSymbols;
+            [sLog logTag:@"ELEMENT" format:@"GUARD caught %@: %@", exception.name, exception.reason];
+            for (NSUInteger i = 0; i < MIN(stack.count, (NSUInteger)10); i++) {
+                [sLog logTag:@"ELEMENT" format:@"GUARD   %@", stack[i]];
+            }
+            if (++sPoCFailureCount >= 5) sPoCDisabledAfterFailure = YES;
+            id registered = OITIKVCObject(receiver, @"registeredElements");
+            if ([registered conformsToProtocol:@protocol(NSFastEnumeration)]) {
+                NSUInteger shown = 0;
+                for (id element in registered) {
+                    if (shown++ >= 12) break;
+                    [sLog logTag:@"ELEMENT" format:@"GUARD element %@", OITIElementValuesSummary(element)];
+                    [sLog logTag:@"ELEMENT" format:@"GUARD parts   %@", OITIElementPartsSummary(element)];
+                }
+            }
+            NSArray<NSDictionary *> *items = [sIslandNoticeItems copy];
+            [sIslandNoticeItems removeAllObjects];
+            for (NSDictionary *item in items) OITIDismissNoticeItem(item);
+        }
+    });
+    class_replaceMethod(managerClass, selector, replacement, encoding);
+    [sLog logTag:@"ELEMENT" format:@"promotion guard installed on -[SAUISystemApertureManager _reevaluatePromotedElements]"];
+}
+
+static void OITIInstallIslandNotificationHooks(void) {
+    OITIInstallPromotionGuard();
+    Class destinationClass = NSClassFromString(@"SBNotificationBannerDestination");
+    if (!destinationClass) {
+        [sLog logTag:@"NOTIF" format:@"banner hook NOT installed: SBNotificationBannerDestination not found"];
+        return;
+    }
+    const char *encoding = NULL;
+    int argCount = 0;
+    NSString *name = OITIFirstBannerMethodName(destinationClass, &encoding, &argCount);
+    if (!name) {
+        [sLog logTag:@"NOTIF" format:@"banner hook NOT installed: no postNotificationRequest* method with a supported shape. Candidates follow."];
+        OITILogBannerCandidates(destinationClass);
+        return;
+    }
+    SEL selector = NSSelectorFromString(name);
+    Method method = class_getInstanceMethod(destinationClass, selector);
+    IMP original = method ? method_getImplementation(method) : NULL;
+    if (!original) {
+        [sLog logTag:@"NOTIF" format:@"banner hook NOT installed: %@ has no implementation", name];
+        return;
+    }
+    IMP replacement;
+    if (argCount == 2) {
+        replacement = imp_implementationWithBlock(^(id receiver, id request, id other) {
+            ((void (*)(id, SEL, id, id))original)(receiver, selector, request, other);
+            OITIHandleBannerRequest(receiver, request);
+        });
+    } else {
+        replacement = imp_implementationWithBlock(^(id receiver, id request) {
+            ((void (*)(id, SEL, id))original)(receiver, selector, request);
+            OITIHandleBannerRequest(receiver, request);
+        });
+    }
+    class_replaceMethod(destinationClass, selector, replacement, encoding);
+    [sLog logTag:@"NOTIF" format:@"banner hook installed on -[%@ %@] (encoding %s)", NSStringFromClass(destinationClass), name, encoding];
+}
+
+%group OITIResearchHooks
+
+%hook SBSystemApertureController
+
+- (id)initWithWindowScene:(id)scene {
+    id result = %orig;
+    if (result) sSystemApertureController = result;
+    return result;
+}
+
+- (id)registerElement:(id)element {
+    if (!sSystemApertureController) sSystemApertureController = self;
+    return %orig;
+}
+
+%end
+
+%end
+
+%group OITIDiagnosticHooks
+
+%hook SBSystemApertureProvidedContentElement
+
+- (instancetype)initWithIdentifier:(id)identifier contentProvider:(id)contentProvider {
+    id result = %orig;
+    if ([sLog isLoggingAtLevel:1]) {
+        if (identifier && ![identifier isKindOfClass:[NSString class]]) OITIProbeObject(identifier, @"identifier");
+        OITIProbeObject(contentProvider, @"contentProvider");
+        OITIProbeObject(result, @"element");
+    }
+    OITLOGGER_LOG_RATED(sLog, 1, @"APERTURE", @"element-init", 8,
+        @"ELEMENT init identifier=%@ provider=%@ result=%@",
+        OITIObjectSummary(identifier), OITIObjectSummary(contentProvider), OITIObjectSummary(result));
+    return result;
+}
+
+- (BOOL)respondsToSelector:(SEL)selector {
+    BOOL result = %orig;
+    if (OITIIsOurElement(self)) OITITraceOnce([NSString stringWithFormat:@"element respondsToSelector:%@ -> %d", NSStringFromSelector(selector), result]);
+    return result;
+}
+
+- (BOOL)conformsToProtocol:(Protocol *)protocol {
+    BOOL result = %orig;
+    if (OITIIsOurElement(self)) OITITraceOnce([NSString stringWithFormat:@"element conformsToProtocol:%s -> %d", protocol_getName(protocol), result]);
+    return result;
+}
+
+- (BOOL)isKindOfClass:(Class)cls {
+    BOOL result = %orig;
+    if (OITIIsOurElement(self)) OITITraceOnce([NSString stringWithFormat:@"element isKindOfClass:%@ -> %d", NSStringFromClass(cls), result]);
+    return result;
+}
+
+- (id)viewProvider {
+    id result = %orig;
+    if (OITIIsOurElement(self)) OITITraceOnce([NSString stringWithFormat:@"element viewProvider -> %@", result ? NSStringFromClass([result class]) : @"nil"]);
+    return result;
+}
+
+- (id)element {
+    id result = %orig;
+    if (OITIIsOurElement(self)) OITITraceOnce([NSString stringWithFormat:@"element element -> %@", result ? NSStringFromClass([result class]) : @"nil"]);
+    return result;
+}
+
+- (id)elementHost {
+    id result = %orig;
+    if (OITIIsOurElement(self)) OITITraceOnce([NSString stringWithFormat:@"element elementHost -> %@", result ? NSStringFromClass([result class]) : @"nil"]);
+    return result;
+}
+
+- (id)layoutHost {
+    id result = %orig;
+    if (OITIIsOurElement(self)) OITITraceOnce([NSString stringWithFormat:@"element layoutHost -> %@", result ? NSStringFromClass([result class]) : @"nil"]);
+    return result;
+}
+
+%end
+
+%hook SAUIElementViewController
+
+- (id)initWithElementViewProvider:(id)provider {
+    id result = %orig;
+    if (sIslandNoticeItems.count && [sLog isLoggingAtLevel:1]) {
+        [sLog logTag:@"ELEMENT" format:@"VCINIT provider=%@(%@) -> %@", NSStringFromClass([provider class]),
+         OITIKVCObject(provider, @"elementIdentifier"), result ? OITIObjectSummary(result) : @"nil"];
+    }
+    return result;
+}
+
+%end
+
+%hook SBSystemApertureElementAuthority
+
+- (id)elementsOrderedByPromotionFromTemporallyOrderedElements:(id)elements withPreviousOrdering:(id)previous {
+    id result = %orig;
+    if (sIslandNoticeItems.count && [sLog isLoggingAtLevel:1]) {
+        [sLog logTag:@"ELEMENT" format:@"AUTH in=%@ previous=%@ out=%@", OITIElementIdentifierList(elements),
+         OITIElementIdentifierList(previous), OITIElementIdentifierList(result)];
+    }
+    return result;
+}
+
+%end
+
+%hook SAUISystemApertureManager
+
+- (id)registerElement:(id)element {
+    id result = %orig;
+    sRegisteringManager = self;
+    if (!sPoCOurRegistrationInFlight) OITICaptureRealElement(element);
+    if ([sLog isLoggingAtLevel:1]) OITIProbeObject(result, @"registration");
+    if ([sLog isLoggingAtLevel:1] && sObservedApertureManagers) {
+        @synchronized (sObservedApertureManagers) {
+            [sObservedApertureManagers addObject:self];
+        }
+    }
+    OITLOGGER_LOG_RATED(sLog, 1, @"APERTURE", @"register-element", 8,
+        @"REGISTER manager=%@ element=%@ result=%@",
+        OITIObjectSummary(self), OITIObjectSummary(element), OITIObjectSummary(result));
+    return result;
+}
+
+- (id)_assertionForElementCreatingIfNecessary:(id)element {
+    id result = %orig;
+    if (OITIIsOurElement(element)) OITITraceOnce([NSString stringWithFormat:@"manager _assertionForElementCreatingIfNecessary -> %@", result ? NSStringFromClass([result class]) : @"nil"]);
+    return result;
+}
+
+- (id)_elementViewControllerForElement:(id)element creatingIfNecessary:(BOOL)creating {
+    id result = %orig;
+    if (sIslandNoticeItems.count && [sLog isLoggingAtLevel:1]) {
+        [sLog logTag:@"ELEMENT" format:@"VCFOR element=%@ creating=%d -> %@", OITIKVCObject(element, @"elementIdentifier"), creating,
+         result ? OITIObjectSummary(result) : @"nil"];
+    }
+    return result;
+}
+
+- (id)orderedElementViewControllers {
+    // Cheap capture so the hello element does not need a charger or timer to have run first.
+    if (!sSeenManager) sSeenManager = self;
+    return %orig;
+}
+
+%end
+
+%end
+
 %group OITIHooks
 
 %hook SBSystemApertureWindow
@@ -1137,39 +2400,6 @@ static void OITILogLiveStatusBar(_UIStatusBar *bar) {
                         @"before=%@ afterOrig=%@ final=%@",
                         NSStringFromCGRect(before), NSStringFromCGRect(afterOrig), NSStringFromCGRect(self.frame));
 }
-
-%end
-
-%group OITIResearchHooks
-
-%hook SBSystemApertureProvidedContentElement
-
-- (instancetype)initWithIdentifier:(id)identifier contentProvider:(id)contentProvider {
-    id result = %orig;
-    OITLOGGER_LOG_RATED(sLog, 1, @"APERTURE", @"element-init", 8,
-        @"ELEMENT init identifier=%@ provider=%@ result=%@",
-        OITIObjectSummary(identifier), OITIObjectSummary(contentProvider), OITIObjectSummary(result));
-    return result;
-}
-
-%end
-
-%hook SAUISystemApertureManager
-
-- (id)registerElement:(id)element {
-    id result = %orig;
-    if ([sLog isLoggingAtLevel:1] && sObservedApertureManagers) {
-        @synchronized (sObservedApertureManagers) {
-            [sObservedApertureManagers addObject:self];
-        }
-    }
-    OITLOGGER_LOG_RATED(sLog, 1, @"APERTURE", @"register-element", 8,
-        @"REGISTER manager=%@ element=%@ result=%@",
-        OITIObjectSummary(self), OITIObjectSummary(element), OITIObjectSummary(result));
-    return result;
-}
-
-%end
 
 %end
 
@@ -1299,8 +2529,8 @@ static void OITILogLiveStatusBar(_UIStatusBar *bar) {
     BOOL didOverride = OITIBannerFrame(frame, &overridden);
     CGRect used = didOverride ? overridden : frame;
 
+    [sBannerWindows addObject:self];   // always kept (weak): the Island notification path needs the banner window
     if ([sLog isLoggingAtLevel:1]) {
-        [sBannerWindows addObject:self];
         NSString *signature = [NSString stringWithFormat:@"in=%@ used=%@ ov=%d", NSStringFromCGRect(frame),
                                NSStringFromCGRect(used), didOverride];
         if ([sLog noteSignature:signature forObject:self]) {
@@ -1382,6 +2612,10 @@ static void preferencesChanged(void) {
     transEnabled = [sOITIPreferences boolForKey:@"transEnabled" default:NO];
     scaleEnabled = [sOITIPreferences boolForKey:@"scaleEnabled" default:NO];
     lineDisabled = [sOITIPreferences boolForKey:@"lineDisabled" default:NO];
+    islandNotificationsEnabled = [sOITIPreferences boolForKey:@"islandNotificationsEnabled" default:NO];
+    islandNotificationsHideBanner = [sOITIPreferences boolForKey:@"islandNotificationsHideBanner" default:NO];
+    CGFloat noticeDuration = [sOITIPreferences floatForKey:@"IslandNotificationsDuration" default:4.0];
+    sIslandNoticeDuration = isfinite(noticeDuration) ? MAX(1.0, MIN(15.0, noticeDuration)) : 4.0;
 
     // Defaults match the globals above (and the prefs UI).
     xPos = [sOITIPreferences floatForKey:@"xPos" default:0.0];
@@ -1463,6 +2697,16 @@ static void preferencesChanged(void) {
     } else {
         %init(OITIHooks);
         %init(OITIResearchHooks);
+        if (sLog.enabled && sLog.level >= 1) {
+            %init(OITIDiagnosticHooks);
+        }
+        OITIInstallIslandNotificationHooks();
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            if (sLog.enabled && sLog.level >= 1 &&
+                [sOITIPreferences boolForKey:@"IslandNotificationsHelloOnBoot" default:NO]) {
+                OITIRunPoCElement(@"boot+10s");
+            }
+        });
         %init(OITIStatusBarHooks);
         [sLog logTag:@"SESSION" format:@"READY hooks installed (profile=%d diagnostics=%d level=%ld)",
          OITICurrentProfile() != NULL, sLog.enabled, (long)sLog.level];

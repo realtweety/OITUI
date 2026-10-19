@@ -124,7 +124,7 @@ OITI has the same kind of logging, built on `OITLogger` from OITCore.
 | Class query | put class names, one per line, in `/tmp/OITIClassQuery.txt` before triggering a dump |
 | Prefs keys | `DiagnosticsEnabled` (bool, default on), `DiagnosticsLevel` (0–2, **default 0**) |
 
-At level 0 OITI writes only `SESSION`, `GUARD`, `SAFE` and `CHECK` lines, about a dozen per boot, and that includes every warning (respring-loop guard, safe mode, MobileGestalt spoof self-check). It runs no polling timer and tracks no windows. Level 1 adds events and state changes (`PREF`, `ISLAND`, `CURTAIN`, `COLOR`, `BANNER`, `GAINMAP`, `TOUCHPASS`), starts the trigger-file poll and takes one baseline dump after the Island first lays out. The aperture research build also logs rate-limited `APERTURE` element-construction and manager-registration events at level 1. Level 2 adds rate-limited per-call lines (`LAYOUT`).
+At level 0 OITI writes only `SESSION`, `GUARD`, `SAFE`, `CHECK` and a few `NOTIF` / `ELEMENT` lines (the two install lines and any failure, see below), about a dozen per boot, and that includes every warning (respring-loop guard, safe mode, MobileGestalt spoof self-check). It runs no polling timer and tracks no windows. Level 1 adds events and state changes (`PREF`, `ISLAND`, `CURTAIN`, `COLOR`, `BANNER`, `GAINMAP`, `TOUCHPASS`), starts the trigger-file poll and takes one baseline dump after the Island first lays out. The aperture research build also logs rate-limited `APERTURE` element-construction and manager-registration events at level 1. Level 2 adds rate-limited per-call lines (`LAYOUT`).
 
 ```
 defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
@@ -164,3 +164,37 @@ Status Bar Layout (key `StatusBarLayout`, picker at the bottom of the settings p
 Native providers read from a device's own log (Island off): `iPhone14,4` (13 mini) uses `_UIStatusBarVisualProvider_Split1080_Wide`. Other devices use a guess by native pixel width until a log is available.
 
 Steps and commands: `COMMANDS.md`, section 12.
+
+### OITI Island Notifications (NOTIF and ELEMENT, 0.2.0)
+
+Two tags cover the feature. `NOTIF` is the banner hook and the stock banner. `ELEMENT` is the Island element's life. At level 0 only the install lines and failures are written (so a bug report always has them); everything else needs level 1.
+
+Level 0:
+
+- `NOTIF banner hook installed on -[SBNotificationBannerDestination postNotificationRequest:] (encoding v24@0:8@16)`, or `NOTIF banner hook NOT installed ...` followed by `CANDIDATES` lines listing the related methods (the selector differs between iOS versions).
+- `ELEMENT promotion guard installed ...`, or `... NOT installed` with the reason.
+- Failures: `no SAUISystemApertureManager seen yet`, `missing class`, `creation failed`, `exception while creating/registering the element`, `could not dismiss the element`, `could not open <bundle>`, `GESTURES: no host view found`, `element creation is off until the next respring`.
+- `ELEMENT GUARD caught <exception>: <reason>` with the first ten stack symbols, `GUARD element` and `GUARD parts` lines for every registered element, and `dismissed element ...`. This is the promotion guard doing its job: an exception inside `-[SAUISystemApertureManager _reevaluatePromotedElements]` while one of OITI's elements was live. After 5 catches in one SpringBoard session, element creation stays off until a respring.
+- `ELEMENT STUB identifier was sent -<selector>`: Apple asked OITI's identifier object for something other than `elementIdentifier` / `clientIdentifier`. Once per selector per launch.
+
+Level 1 adds:
+
+- `NOTIF banner request <request> bundle=... app=... title=... message=... (feature on|off)`: one line per banner, with the title and message cut to 40 and 60 characters. **These lines contain notification text; look before sharing a log.**
+- `NOTIF stock banner window restored after N s`, `NOTIF haptic played`.
+- `ELEMENT registered <identifier> (<reason>) registrar=... registration=... duration=...`, `layout variant N applied: ...` (the layout modes the style resolved to), `our element before/after layout values`, `our element parts`, `replaced N element(s) already on screen`.
+- `ELEMENT VIEWS element / parts / leading / trailing / primary / secondary` 0.9 s after registering: where each view ended up (frame, frame in window, hidden, alpha, window, superview chain).
+- `ELEMENT CORNERS leading chain` (corner radius, mask and size of every ancestor) and `CORNERS applied +N` when `IslandNotificationsCornerExtra` is set.
+- `ELEMENT GESTURES attached to SAUIElementView and SBSystemApertureWindow`, `TOUCH began (element|window) hit=<class> at <point>` (where a touch landed), `TAP on the notification element ... seen by <view>`, `tap ran -_executeDefaultAction: on NCNotificationShortLookViewController` (the normal case), `tap: no matching stock banner (found N), using the fallback`, then `open url ...` or `open app <bundle> via ... -> 1`, and `SWIPE up ...`.
+- The **diagnostic hooks** (only installed at level 1, so they cost nothing at level 0): `REAL element ...` and `REAL parts ...` for Apple's own elements (identifiers, layout modes, which views each has), `PROBE <role> = <class>` followed by that class's methods (`CLASSQ` lines), `TRACE ...` (what Apple asks OITI's element: `respondsToSelector:`, `conformsToProtocol:`, `isKindOfClass:`, accessors), `VCFOR element=... creating=N -> class|nil` (the manager's view controller lookup), `VCINIT provider=... -> ...`, and `AUTH in=[...] previous=[...] out=[...]` (the authority's ordering).
+
+Developer tools (level 1):
+
+| Item | What it does |
+| --- | --- |
+| `touch /tmp/OITIPoC.trigger` | Shows a test notification element (app icon, title, message) without a real notification. |
+| `/tmp/OITIPoCSample.txt` | Optional text for that test element: title, message, bundle id, subtitle, one per line (empty lines are skipped). Remove it afterwards. |
+| `IslandNotificationsHelloOnBoot` | If set to 1, shows the test element 10 s after every launch (default 0). |
+| `IslandNotificationsDevLayout` | Forces a layout variant (1 compact, 3 min 1 / preferred 2 / max 3, 4 charging-like, 5 expanded, 6 wide), ignoring the Style picker. |
+| `IslandNotificationsPoCRegistrar` | 0 registers through `SBSystemApertureController` (default), 1 through the SAUI manager (the old way; fails). |
+
+Commands and the reporting recipe for testers: `COMMANDS.md`, section 13.

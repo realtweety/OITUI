@@ -505,6 +505,46 @@ gh release create v0.1.1 --title "OITI 0.1.1" --generate-notes ~/theos-projects/
 | `gh release list` | Lists GitHub Releases. | Arch PC, Mac |
 | `gh release view v0.1.0` | Shows the v0.1.0 release and its attached files. | Arch PC, Mac |
 
+Pre-releases (betas). A beta for testers can be built from `experiments` once the work has run on the phone. `OITI/control` says `0.2.0~beta.1` (the tilde sorts it below `0.2.0`), the tag is `v0.2.0-beta.1` and the GitHub Release is marked pre-release. First commit and push the version, docs and code from the Arch PC:
+
+```
+cd ~/OITUI
+git switch experiments
+git status --short
+git add -A
+git commit -m "OITI 0.2.0 Beta 1: Island Notifications, docs"
+git push
+git log --oneline -1
+```
+
+Then on the Mac, build from that exact commit with a clean tree (the `git status` line must print nothing):
+
+```
+cd ~/theos-projects/OITUI
+git fetch --prune origin
+git switch experiments
+git pull --ff-only
+git status --short
+git log --oneline -1
+rm -f OITCore/packages/*.deb OITI/packages/*.deb
+cd OITCore
+make clean package FINALPACKAGE=1
+cd ../OITI
+make clean package FINALPACKAGE=1
+ls ../OITCore/packages ../OITI/packages
+```
+
+The two `git log` hashes must match. Test those exact `.deb` files on the phone (with `iproxy 2222 22` running), the same way as a release (`scp`, `dpkg -i`, `sbreload`), and check section 13 before tagging. Then publish from the Mac, in this order (never tag before the `.deb` files are built and tested from that commit):
+
+```
+cd ~/theos-projects/OITUI
+git tag -a v0.2.0-beta.1 -m "OITI 0.2.0 Beta 1"
+git push origin v0.2.0-beta.1
+gh release create v0.2.0-beta.1 --prerelease --title "OITI 0.2.0 Beta 1" --notes-file RELEASE_NOTES_0.2.0-beta.1.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
+```
+
+GitHub shows the tilde in the file name as a dot (`0.2.0.beta.1`); `dpkg` uses the version in the package's `control` file. If the tag or release is wrong, delete it with `gh release delete v0.2.0-beta.1 --cleanup-tag --yes` and start again from the build.
+
 ## 11. Gotchas
 
 - `defaults delete` does not exist on this phone. Write a value instead (`-int 0`).
@@ -545,3 +585,91 @@ defaults write com.wilburt.oiti.prefs StatusBarLayout -string off
 ```
 
 Valid values are `auto`, `off`, or a `_UIStatusBarVisualProvider_*` class name from the `PROVIDER` lines. The phone's `defaults` has no delete mode, so write `auto` to go back. A wrong class can crash SpringBoard; after 5 launches in 120 s safe mode turns the hooks off, and the red bar returns but the phone stays usable.
+
+## 13. Island Notifications (OITI 0.2.0 Beta)
+
+Island Notifications shows each notification banner as an Island element. It is off by default. The switches and sliders are on Settings > OITI > Notifications and write the domain `com.wilburt.oiti.prefs`. Everything except the install lines below needs the Island on (OITI's spoof or real hardware); otherwise the stock banner stays.
+
+| Key | Meaning |
+| --- | --- |
+| `islandNotificationsEnabled` | Show notifications in the Island (default off). |
+| `islandNotificationsHideBanner` | Fade the stock banner window while the Island element shows (default off). Only acts after the element registered. |
+| `IslandNotificationsStyle` | 0 Compact, 1 Wide, 2 Expanded (default). Compact and Wide are experimental. |
+| `IslandNotificationsDuration` | Seconds on screen, 2 to 10 (default 4). |
+| `IslandNotificationsMessageLines` | Message lines before the ellipsis, 1 to 4 (default 2). |
+| `IslandNotificationsCornerExtra` | Points added to the Island's corner radius while a notification shows, -4 to 8 (default 0). |
+| `NotificationHaptic` | One short light haptic per banner request (default off). Independent of the other switches. |
+
+**Reporting a problem (testers).** First raise the log level, wait 2 minutes after the respring (safe mode counts quick launches), trigger one notification, then read the log:
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
+```
+
+```
+sbreload
+```
+
+```
+grep -E "SESSION|SAFE|NOTIF|ELEMENT" /tmp/OITIDebug.log | tail -80
+```
+
+Send that output, plus your device, iOS version and jailbreak. The `NOTIF banner request` lines contain the first characters of your notification titles and messages, so read them before sharing. Afterwards set the level back:
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0
+```
+
+**What a good run looks like.**
+
+| Command | What to look for | Where |
+| --- | --- | --- |
+| `grep -E "SESSION\|SAFE" /tmp/OITIDebug.log` | The build tag `OITI-0.2.0-beta.1`, `READY hooks installed` and no `SAFE MODE`. | Phone |
+| `grep -E "banner hook\|promotion guard" /tmp/OITIDebug.log` | `banner hook installed on ...` and `promotion guard installed ...` (also at level 0). `NOT installed` plus `CANDIDATES` lines means this iOS version needs a code change. | Phone |
+| `grep -E "banner request\|registered\|haptic played" /tmp/OITIDebug.log \| tail` | One `banner request` and one `registered` per notification (level 1); `haptic played` if the haptic is on. | Phone |
+| `grep -E "GUARD\|GESTURES\|TOUCH\|TAP\|tap ran\|SWIPE\|open app" /tmp/OITIDebug.log \| tail` | `GESTURES attached` per notification; after a tap `TAP on the notification element` and `tap ran -_executeDefaultAction:` (the fallback lines `tap: no matching stock banner` / `open app` mean the stock banner was already gone); `SWIPE up` after a swipe. A `GUARD caught` line is a bug report. | Phone |
+
+If a notification ever shows as a stock banner with the feature on, check the `ELEMENT` lines: `no SAUISystemApertureManager seen yet`, `missing class` and `element creation is off` are the safe failure paths.
+
+**Developer tools** (need `DiagnosticsLevel` 1; details in `DIAGNOSTICS.md`). Show a test element without a real notification:
+
+```
+touch /tmp/OITIPoC.trigger
+```
+
+Try different text (title, message, bundle id, subtitle, one per line; empty lines are skipped), for example a long message, no title, or a subtitle:
+
+```
+printf 'Alex\nThis is a much longer message to see how the Island handles several lines of text without cutting it off in a bad way, even with a very long word like supercalifragilisticexpialidocious\ncom.apple.MobileSMS\n' > /tmp/OITIPoCSample.txt
+```
+
+```
+printf '\nOnly a message and no title at all\ncom.apple.MobileSMS\n' > /tmp/OITIPoCSample.txt
+```
+
+```
+printf 'Alex\nSee you at 7\ncom.apple.MobileSMS\nWeekend Plans\n' > /tmp/OITIPoCSample.txt
+```
+
+```
+rm -f /tmp/OITIPoCSample.txt
+```
+
+Show where each view landed (about 1 s after a test element appears):
+
+```
+grep -E "VIEWS|layout variant|GUARD caught" /tmp/OITIDebug.log | tail -12
+```
+
+Force a layout variant, ignoring the Style picker (1 compact, 3, 4, 5 expanded, 6 wide; write -1 to turn the override off):
+
+```
+defaults write com.wilburt.oiti.prefs IslandNotificationsDevLayout -int 6
+```
+
+Stop the Island element from running at all (turn both switches off in settings, or):
+
+```
+defaults write com.wilburt.oiti.prefs islandNotificationsEnabled -int 0
+```
+

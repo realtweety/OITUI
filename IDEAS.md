@@ -4,10 +4,12 @@
 
 ## Up Next (OITI)
 
-- **Island-native content via Apple's own element API.** Research is done enough to start (see `OVERVIEW.md`, "Island research findings"). Order of work: (1) log-only hooks on `-[SBSystemApertureProvidedContentElement initWithIdentifier:contentProvider:]` and `-[SAUISystemApertureManager registerElement:]` while charging, Spotify and a timer are active, plus a protocol dump; (2) a proof-of-concept "hello" element created on demand, modeled on `SBChargingSystemApertureElementProvider`; (3) Island-native notifications (app icon, app name, short message) instead of the stock banner; (4) a queue / stack controller using the authority's ordering logic; (5) progress bars. Open questions: truncation rules, what happens when a second notification arrives while one is showing.
-- **Notification feature requirement:** custom in-Island notifications must have a dedicated Settings toggle (`islandNotificationsEnabled`) and default to off. Turning it off must disable OITI's custom notification element while leaving normal iOS notification behavior intact; existing banner-position controls remain separate.
+- **Island content (status: notifications done in 0.2.0 Beta 1).** The element route worked: banner requests become real Island elements (Expanded style, tap, swipe, haptic, duration, roundness, replace-on-new). See `LEARNINGS.md`, "Island elements". Remaining: **(1)** a queue / stack for several notifications at once (today a new one replaces the old one), **(2)** progress bars, **(3)** the volume slider (below), **(4)** polishing Compact and Wide (the trailing text did not show in Compact), **(5)** coverage of notifications that skip the banner path (lock screen deliveries get no haptic), **(6)** testing on real Dynamic Island hardware and other iOS 16 builds. Tapping already opens the notification itself (done in 0.2.0 Beta 1). Open question: truncation of very long titles and what a second notification should do.
+- **Notification feature requirement (met):** custom in-Island notifications have a dedicated Settings toggle (`islandNotificationsEnabled`, default off). Turning it off disables OITI's custom notification element and leaves normal iOS notifications untouched; the haptic is independent of it.
 - **Hello Animation:**  Play the Hello Animation after a respring, userspace reboot, etc.
 - **Polish list** (owner chose to defer): live color, opacity and banner offset (add a relayout request like the size sliders); banner position at extreme Island sizes; make the X/Y scale relative to Apple's own size (screen width / canvas width, new keys, no migration); maybe lower the Island Height slider minimum (around 0.6 is where 22 pt artwork stops fitting, untested).
+- **Volume slider in the Island (next big feature, not started).** Crescendo (`github.com/Yves000/Crescendo`, GPL-3.0) already does it inside the MediaRemoteUI process. Check that it coexists with OITI first. If we write our own it must be clean-room (no copied code), needs a new process filter and a way to suppress the stock volume HUD, and should get its own settings toggle.
+- **Per-app exclude list for Island Notifications.** Deferred until someone asks for it (keep Phone or Timer on the stock banner, for example).
 - **OITS** is parked: revert or adapt to the `_UIStatusBarProvider_DynamicSplit` layout class, rebuild the lost diagnostic fixes, restore the scoping guard.
 
 ## Things I Think Would Be Nice
@@ -92,8 +94,7 @@ on-device measurement, not before.
 - OITI is a positioning/appearance shim over Apple's real Dynamic Island. `islandEnabled` spoofs `ArtworkDeviceSubType` (2556) so
   iOS builds SystemAperture; `Tweak.xm` hooks `SBSystemApertureWindow`, `SBBannerWindow` and a few appearance views. Island content
   (music, timers) is Apple's. The Island's expanded media player is rendered by the **MediaRemoteUI** process (per Crescendo's README).
-- Next research step: dump the `SBSystemApertureWindow` subtree with OITInspector while a stock element is active, then decide between
-  hooking Apple's element providers and drawing our own overlay.
+- Next research step (done in October 2026): the element route was chosen and works. Notes: `LEARNINGS.md`, "Island elements".
 
 ## Infrastructure ideas (from the OITI review and Crescendo)
 
