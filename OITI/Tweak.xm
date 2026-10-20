@@ -190,6 +190,7 @@ static BOOL islandStartupHelloEnabled;        // OITI > Startup Animation protot
 static BOOL sStartupHelloObservationWindowOpen;
 static BOOL sStartupHelloActivitySeen;
 static BOOL sStartupHelloReadinessLogged;
+static int sStartupHelloPolls;   // once-a-second readiness checks so far; the check gives up after 180 (3 minutes)
 static CGFloat sIslandNoticeDuration = 4.0;   // seconds, key IslandNotificationsDuration, clamped 1 - 15
 
 // Diagnostics and safe-mode settings (prefs keys listed in the header comment).
@@ -2462,6 +2463,10 @@ static void OITIRunStartupHello(void) {
             } else if (sStartupHelloReadinessLogged) {
                 [sLog logLevel:1 tag:@"HELLO" format:@"waiting until unlocked on the Home Screen"];
                 sStartupHelloReadinessLogged = NO;
+            }
+            if (++sStartupHelloPolls > 180) {
+                [sLog logLevel:1 tag:@"HELLO" format:@"startup prototype gave up waiting for an unlocked Home Screen after %d checks", sStartupHelloPolls - 1];
+                return;
             }
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{ OITIRunStartupHello(); });
             return;

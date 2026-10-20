@@ -24,3 +24,9 @@ Requires a rootless iOS 16 jailbreak and OITCore. Install the OITCore and OITI `
 See `COMMANDS.md` for diagnostic and recovery steps. Island notification titles and message snippets may appear in diagnostic logs when verbose diagnostics are enabled; review logs before sharing them.
 
 OITI is based on VisibleIsland by ethxnn88, used with permission. OITI's Settings pages are adapted from Liquid (Gl)Ass by Winaviation under CC BY-NC 4.0; changes were made for OITUI and the upstream author does not endorse OITUI. See the license text in `Third Party Licenses/LIQUIDASS-LICENSE.txt` and the [upstream repository](https://github.com/winaviation-tweaks/liquidass).
+
+## Notes
+
+- Notification stacking (up to four notifications at once) is on by default whenever Island Notifications is on, and is still experimental. Turn it off in Settings > OITI > Notifications to get one notification at a time.
+- After you tap a notification in the Island, its card stays until it times out or you swipe it away.
+- The startup Hello animation is an experimental prototype and is off by default (Settings > OITI > Startup).
