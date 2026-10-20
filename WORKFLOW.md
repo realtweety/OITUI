@@ -35,10 +35,10 @@ Never force-push `main` or rewrite its history.
 A commit on `main` is not automatically a release. A release is a version tag plus a GitHub Release with the packages attached. Only `main`, only tested work.
 
 - **Build on the Mac** (not the Arch PC: its arm64e objects warn about an incompatible ABI) with `FINALPACKAGE=1`, after clearing the old `packages/` folders. Ship **OITCore and OITI together** (OITI depends on OITCore). Do not ship OITS until it is verified.
-- **Versions** live in each module's `control` file (`Version:`). Keep them ascending: dpkg sorts `0.0.10` below `0.1.0`. Bump the version through a normal PR before tagging. Tag names are `vMAJOR.MINOR.PATCH`.
-- **Betas.** A beta for testers can be built from `experiments` (once the work has run on the phone) instead of `main`. Use a tilde version (`0.2.0~beta.1` in `OITI/control`, which sorts below `0.2.0`), tag `v0.2.0-beta.1` and mark the GitHub Release as a pre-release. Commit and push the version and docs first, build from that exact clean commit on the Mac, test the files, and only then tag. Land the work on `main` by pull request after beta feedback, and cut the final release from `main`.
+- **Versions** live in each module's `control` file (`Version:`). Keep them ascending: dpkg sorts `0.0.10` below `0.1.0`. Bump the version through a normal PR before tagging. Tag names are `vMAJOR.MINOR.PATCH`. OITI `0.2.0` supersedes the `0.2.0~beta.1` pre-release; OITCore remains `0.1.0`.
+- **Betas.** A beta for testers can be built from `experiments` once the work has run on the phone. Use a tilde version such as `0.2.0~beta.1` (which sorts below `0.2.0`), tag `v0.2.0-beta.1` and mark the GitHub Release as a pre-release. Build from an exact clean commit on the Mac and test those packages before tagging. Land the work on `main` by pull request after beta feedback, then cut the final release from `main`.
 - **Test the exact `.deb` files** on the phone (`scp`, `dpkg -i`, `sbreload`) before publishing.
-- Exact commands: `COMMANDS.md`, section 10 ("Releases"). Released so far: `v0.1.0` (`46cf122`), `v0.1.1`, pre-release `v0.2.0-beta.1`.
+- Exact commands: `COMMANDS.md`, section 10 ("Releases"). Released: `v0.1.0` (`46cf122`), `v0.1.1`, pre-release `v0.2.0-beta.1`; current release: `v0.2.0`.
 
 ## Logging policy
 

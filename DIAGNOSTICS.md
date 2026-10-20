@@ -165,7 +165,7 @@ Native providers read from a device's own log (Island off): `iPhone14,4` (13 min
 
 Steps and commands: `COMMANDS.md`, section 12.
 
-### OITI Island Notifications (NOTIF and ELEMENT, 0.2.0)
+### OITI Island Notifications and Startup Animation (NOTIF, ELEMENT and HELLO, 0.2.0)
 
 Two tags cover the feature. `NOTIF` is the banner hook and the stock banner. `ELEMENT` is the Island element's life. At level 0 only the install lines and failures are written (so a bug report always has them); everything else needs level 1.
 
@@ -181,7 +181,8 @@ Level 1 adds:
 
 - `NOTIF banner request <request> bundle=... app=... title=... message=... (feature on|off)`: one line per banner, with the title and message cut to 40 and 60 characters. **These lines contain notification text; look before sharing a log.**
 - `NOTIF stock banner window restored after N s`, `NOTIF haptic played`.
-- `ELEMENT registered <identifier> (<reason>) registrar=... registration=... duration=...`, `layout variant N applied: ...` (the layout modes the style resolved to), `our element before/after layout values`, `our element parts`, `replaced N element(s) already on screen`.
+- `HELLO startup prototype presented`, `suppressed by five-minute cooldown`, `activity observed before prototype presentation`, `promoted startup animation ahead of charging activity`, and `yielding startup card`: startup eligibility and handoff events. The prototype is controlled by `IslandStartupHelloEnabled` (default off); its persistent cooldown timestamp is `IslandStartupHelloLastPlayedAt`.
+- `ELEMENT registered <identifier> (<reason>) registrar=... registration=... duration=...`, `STACK layout ...` (compact/expanded mode plus alert/activity behavior), `STACK separate-cards ... compactCards=N`, `STACK full ... evicting oldest ...`, and `STACK removed ... remaining=N`. In expanded/wide styles, older notices are individually rounded, spaced cards in the newest notice's secondary content; they still share the outer expanded Island card. Expiration restarts on compact demotion and promotion. In Compact style, all items use compact mode. The Experimental Notification Stack toggle in OITI > Notifications disables multi-item stacking and replaces the previous notice when a new one arrives. Turning stacking off while notices are visible retains the newest and clears older items. These lines show stack transitions and per-item expiration/dismissal.
 - `ELEMENT VIEWS element / parts / leading / trailing / primary / secondary` 0.9 s after registering: where each view ended up (frame, frame in window, hidden, alpha, window, superview chain).
 - `ELEMENT CORNERS leading chain` (corner radius, mask and size of every ancestor) and `CORNERS applied +N` when `IslandNotificationsCornerExtra` is set.
 - `ELEMENT GESTURES attached to SAUIElementView and SBSystemApertureWindow`, `TOUCH began (element|window) hit=<class> at <point>` (where a touch landed), `TAP on the notification element ... seen by <view>`, `tap ran -_executeDefaultAction: on NCNotificationShortLookViewController` (the normal case), `tap: no matching stock banner (found N), using the fallback`, then `open url ...` or `open app <bundle> via ... -> 1`, and `SWIPE up ...`.

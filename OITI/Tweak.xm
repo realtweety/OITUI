@@ -1,10 +1,11 @@
 // OITI -- Dynamic Island positioning/appearance module for OITUI (fork of VisibleIsland by ethxnn88).
 //
-// 0.2.0 BETA 1. Build tag: see kOITIBuildTag.
+// OITI 0.2.0 notification stack (owner-tested on iPhone 8 Plus / iOS 16.7.16; still experimental). Build tag: see kOITIBuildTag.
 //
 // ISLAND NOTIFICATIONS (new in 0.2.0): an incoming notification banner is shown as a real Island element (app icon, title,
-// message) instead of the stock banner. Everything is off by default and fails soft: when any step is not possible the stock
-// banner is left alone.
+// message) instead of the stock banner. Custom Island notifications are off by default (`islandNotificationsEnabled = NO`)
+// and fail soft: when any step is not possible the stock banner is left alone. Stack mode defaults on, but is dormant while
+// the parent notification feature is off.
 //   Observe:  at launch the banner post method of SBNotificationBannerDestination (postNotificationRequest*, found by name
 //             pattern and hooked with the runtime only when its type encoding is v32@0:8@16@24 or v24@0:8@16; the original
 //             always runs first) hands OITI every banner request. NOTIF lines log it at level 1.
@@ -13,7 +14,11 @@
 //             carries leading (app icon), trailing (short headline), primary (title) and secondary (message) views, each wrapped
 //             in a SBUISystemApertureCustomContentProvider held by a SBUISystemApertureContentProvider. It is registered with
 //             -[SBSystemApertureController registerElement:], the registrar SpringBoard's own providers use, and Apple's code
-//             hosts it like any other element. A new notification replaces the one on screen.
+//             hosts it like any other element. With islandNotificationStackEnabled (default ON), up to four stay registered:
+//             in Expanded/Wide style the newest prefers that layout and older notices render as distinct rounded cards inside
+//             its secondary content; Compact keeps all four compact. The older cards share the outer expanded Island card.
+//             New notices evict the oldest; each item's timeout restarts when it is demoted to compact or promoted.
+//             With stacking OFF, only one item is kept and new notices replace it. Settings warns the stack is usable but unpolished.
 //   Hide:     islandNotificationsHideBanner (default OFF) fades the stock banner window out until the banner is gone. It only does
 //             so after the element registered.
 //   Style:    IslandNotificationsStyle (0 Compact, 1 Wide, 2 Expanded; default 2) = layout modes min / max / preferred
@@ -104,6 +109,7 @@
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
+#import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <math.h>
@@ -117,7 +123,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-0.2.0-beta.1";
+static NSString * const kOITIBuildTag = @"OITI-0.2.0";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -127,6 +133,10 @@ static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
 static NSString * const kOITIDumpTriggerPath = @"/tmp/OITIDump.trigger";
 static NSString * const kOITIClassQueryPath = @"/tmp/OITIClassQuery.txt";
 static NSString * const kOITIPoCTriggerPath = @"/tmp/OITIPoC.trigger";
+static NSString * const kOITIStartupHelloLastPlayedKey = @"IslandStartupHelloLastPlayedAt";
+static NSString * const kOITIStartupHelloVideoPath = @"/var/jb/Library/Application Support/OITI/StartupHello.mp4";
+static const NSTimeInterval kOITIStartupHelloCooldown = 300.0;
+static const NSTimeInterval kOITIStartupHelloPrototypeDuration = 8.0;
 
 static NSString * const kOITIBootLogPath = @"/var/mobile/Library/Preferences/OITIBootLog.plist";
 static NSString * const kOITISafeModePath = @"/var/mobile/Library/Preferences/OITISafeMode.plist";
@@ -175,6 +185,11 @@ static BOOL scaleEnabled;
 static BOOL lineDisabled;
 static BOOL islandNotificationsEnabled;       // OITI > Notifications: show notifications as an Island element (default NO)
 static BOOL islandNotificationsHideBanner;    // also fade the stock banner window out while our element is up (default NO)
+static BOOL sIslandNotificationStackEnabled = YES; // Experimental multi-notification stack (default YES for existing behavior)
+static BOOL islandStartupHelloEnabled;        // OITI > Startup Animation prototype (default NO)
+static BOOL sStartupHelloObservationWindowOpen;
+static BOOL sStartupHelloActivitySeen;
+static BOOL sStartupHelloReadinessLogged;
 static CGFloat sIslandNoticeDuration = 4.0;   // seconds, key IslandNotificationsDuration, clamped 1 - 15
 
 // Diagnostics and safe-mode settings (prefs keys listed in the header comment).
@@ -258,6 +273,8 @@ static NSString *OITIObjectSummary(id object) {
 @end
 
 static void OITIRunPoCElement(NSString *reason);
+static void OITIRunStartupHello(void);
+static void OITIRefreshNewestNoticeComposite(void);
 
 @interface _SBSystemApertureMagiciansCurtainView : UIView
 @end
@@ -312,6 +329,8 @@ static NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
         @"MetricsSensorW": @(sMetricsSensorX), @"MetricsSensorH": @(sMetricsSensorY),
         @"islandNotificationsEnabled": @(islandNotificationsEnabled),
         @"islandNotificationsHideBanner": @(islandNotificationsHideBanner),
+        @"islandNotificationStackEnabled": @(sIslandNotificationStackEnabled),
+        @"IslandStartupHelloEnabled": @(islandStartupHelloEnabled),
         @"IslandNotificationsDuration": @(sIslandNoticeDuration),
         @"IslandNotificationsStyle": @([sOITIPreferences floatForKey:@"IslandNotificationsStyle" default:2]),
         @"NotificationHaptic": @([sOITIPreferences boolForKey:@"NotificationHaptic" default:NO]),
@@ -1212,6 +1231,19 @@ static __weak id sSystemApertureController;   // SBSystemApertureController: the
 // them while the Island still shows them.
 static NSMutableArray<NSDictionary *> *sIslandNoticeItems;
 static id sPendingNoticeRequest;   // the NCNotificationRequest being presented, kept with its element for the tap action
+static NSMutableDictionary *sStartupHelloItem;
+static const NSUInteger kOITINoticeStackLimit = 4;   // one expanded plus three compact, or four compact
+static void OITIDismissNoticeItem(NSDictionary *item);
+static void OITIRestoreCorners(void);
+static void OITICancelStartupHello(NSString *reason);
+
+@interface OITIStartupVideoView : UIView
+@property (nonatomic, strong, readonly) AVPlayer *player;
+- (instancetype)initWithURL:(NSURL *)url;
+- (NSTimeInterval)mediaDuration;
+- (void)startPlayback;
+- (void)stopPlayback;
+@end
 
 // Layout-mode numbers copied from the first real (Apple) element that registers, so our element can use values Apple
 // itself uses instead of guessed enum numbers. Keys: preferred, minimum, maximum.
@@ -1347,6 +1379,7 @@ static void OITICaptureRealElement(id element) {
 
 // ---- Trace of what Apple asks OITI's element ------------------------------------------------
 static NSMutableSet<NSString *> *sTraceSeen;
+static NSInteger OITINoticeStyle(void);
 
 static BOOL OITIIsOurElement(id element) {
     if (!element || !sIslandNoticeItems.count) return NO;
@@ -1354,6 +1387,130 @@ static BOOL OITIIsOurElement(id element) {
         if (item[@"element"] == element) return YES;
     }
     return NO;
+}
+
+// The charging activity is an ordinary system aperture element. Let Hello play ahead of it,
+// then allow SpringBoard to promote charging after Hello is removed. Other system activities
+// (especially calls) keep the normal immediate-yield behavior.
+static BOOL OITIIsChargingSystemElement(id element) {
+    id identifier = OITIKVCObject(element, @"elementIdentifier");
+    return [identifier isKindOfClass:[NSString class]] &&
+           [identifier isEqualToString:@"SBChargingSystemApertureElementProvider"];
+}
+
+// SpringBoard only promotes one alert at a time. Keep the newest notice in the alert lane and let
+// older notices participate as compact activities so the aperture can present them alongside it.
+static BOOL OITIIsNewestNoticeElement(id element) {
+    return element && sIslandNoticeItems.count && sIslandNoticeItems.lastObject[@"element"] == element;
+}
+
+static BOOL OITIIsAlertNoticeElement(id element) {
+    return OITINoticeStyle() != 0 && OITIIsNewestNoticeElement(element);
+}
+
+static NSInteger OITINoticeStyle(void) {
+    NSInteger style = (NSInteger)lround([sOITIPreferences floatForKey:@"IslandNotificationsStyle" default:2]);
+    return MAX(0, MIN(2, style));   // 0 compact, 1 wide, 2 expanded
+}
+
+// Existing items remain registered while their preferred mode changes. Registering or invalidating an item
+// causes Apple's authority to reevaluate the ordering and choose the new preferred layout.
+static void OITIScheduleNoticeTimeout(NSMutableDictionary *item);
+
+static void OITISetNoticeLayout(NSDictionary *item, NSInteger style, BOOL isNewest) {
+    id element = item[@"element"];
+    if (!element) return;
+
+    BOOL compact = (style == 0) || !isNewest;
+    NSInteger layoutVariant = compact ? 1 : (style == 1 ? 6 : 5);
+    NSInteger devVariant = (NSInteger)lround([sOITIPreferences floatForKey:@"IslandNotificationsDevLayout" default:-1]);
+    if (isNewest && devVariant >= 0) layoutVariant = devVariant;
+    NSInteger minimum = 1, preferred = 1, maximum = 1;
+    if (layoutVariant == 2 && sRealLayoutValues) {
+        minimum = sRealLayoutValues[@"minimum"].integerValue;
+        preferred = sRealLayoutValues[@"preferred"].integerValue;
+        maximum = sRealLayoutValues[@"maximum"].integerValue;
+    } else if (layoutVariant == 3) {
+        preferred = 2; maximum = 3;
+    } else if (layoutVariant == 4) {
+        minimum = -1; preferred = 2; maximum = 2;
+    } else if (layoutVariant == 5) {
+        preferred = 3; maximum = 3;
+    } else if (layoutVariant == 6) {
+        preferred = 2; maximum = 2;
+    }
+    SEL setPreferred = NSSelectorFromString(@"setPreferredLayoutMode:");
+    SEL setMinimum = NSSelectorFromString(@"setMinimumSupportedLayoutMode:");
+    SEL setMaximum = NSSelectorFromString(@"setMaximumSupportedLayoutMode:");
+    @try {
+        if ([element respondsToSelector:setMinimum]) ((void (*)(id, SEL, NSInteger))objc_msgSend)(element, setMinimum, minimum);
+        if ([element respondsToSelector:setMaximum]) ((void (*)(id, SEL, NSInteger))objc_msgSend)(element, setMaximum, maximum);
+        if ([element respondsToSelector:setPreferred]) ((void (*)(id, SEL, NSInteger))objc_msgSend)(element, setPreferred, preferred);
+        BOOL alert = (style != 0 && isNewest);
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK layout %@ mode=%ld/%ld/%ld newest=%d alert=%d activity=%d style=%ld",
+         OITIKVCObject(element, @"elementIdentifier"), (long)minimum, (long)preferred, (long)maximum,
+         isNewest, alert, !alert, (long)style];
+    } @catch (NSException *exception) {
+        [sLog logTag:@"ELEMENT" format:@"STACK layout update failed for %@: %@ %@",
+         OITIKVCObject(element, @"elementIdentifier"), exception.name, exception.reason];
+    }
+}
+
+// Expire or swipe away one item. If the visible newest item leaves, promote the newest survivor.
+static void OITIRemoveNoticeItem(NSDictionary *item, NSString *reason) {
+    NSUInteger index = [sIslandNoticeItems indexOfObjectIdenticalTo:item];
+    if (index == NSNotFound) return;
+    BOOL wasNewest = (index == sIslandNoticeItems.count - 1);
+    dispatch_block_t timeout = item[@"timeoutBlock"];
+    if (timeout) dispatch_block_cancel(timeout);
+    for (id playbackObserver in item[@"playbackObservers"] ?: @[]) {
+        [[NSNotificationCenter defaultCenter] removeObserver:playbackObserver];
+    }
+    [(OITIStartupVideoView *)item[@"startupVideoView"] stopPlayback];
+    if (wasNewest && index > 0) {
+        OITIScheduleNoticeTimeout((NSMutableDictionary *)sIslandNoticeItems[index - 1]);
+        OITISetNoticeLayout(sIslandNoticeItems[index - 1], OITINoticeStyle(), YES);
+    }
+    OITIDismissNoticeItem(item);
+    [sIslandNoticeItems removeObjectAtIndex:index];
+    if (item == sStartupHelloItem) sStartupHelloItem = nil;
+    OITIRefreshNewestNoticeComposite();
+    [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK removed %@ reason=%@ remaining=%lu",
+     OITIKVCObject(item[@"element"], @"elementIdentifier"), reason, (unsigned long)sIslandNoticeItems.count];
+    if (sIslandNoticeItems.count == 0) OITIRestoreCorners();
+}
+
+// Give a notice a fresh lifetime when it is demoted from the expanded slot to the compact list.
+// The weak capture avoids a retain cycle between the item dictionary and its timeout block.
+static void OITIScheduleNoticeTimeout(NSMutableDictionary *item) {
+    dispatch_block_t previous = item[@"timeoutBlock"];
+    if (previous) dispatch_block_cancel(previous);
+    __weak NSMutableDictionary *weakItem = item;
+    dispatch_block_t timeout = dispatch_block_create((dispatch_block_flags_t)0, ^{
+        NSMutableDictionary *strongItem = weakItem;
+        if (strongItem && [sIslandNoticeItems containsObject:strongItem]) {
+            OITIRemoveNoticeItem(strongItem, @"timeout");
+        }
+    });
+    item[@"timeoutBlock"] = timeout;
+    NSTimeInterval duration = [item[@"timeoutDuration"] respondsToSelector:@selector(doubleValue)]
+        ? [item[@"timeoutDuration"] doubleValue] : sIslandNoticeDuration;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(duration * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), timeout);
+}
+
+static void OITICancelStartupHello(NSString *reason) {
+    NSDictionary *item = sStartupHelloItem;
+    if (!item) return;
+    [sLog logLevel:1 tag:@"HELLO" format:@"yielding startup card to Island activity (%@)", reason];
+    OITIRemoveNoticeItem(item, reason ?: @"interrupted");
+}
+
+static BOOL OITIIsBaselineLockElement(id element) {
+    NSString *identifier = [OITIKVCObject(element, @"elementIdentifier") description];
+    NSString *className = NSStringFromClass([element class]);
+    return [identifier rangeOfString:@"lock" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+           [className rangeOfString:@"LockElement" options:NSCaseInsensitiveSearch].location != NSNotFound;
 }
 
 // Logs one TRACE line per distinct message per test run, in the order they first happen.
@@ -1367,7 +1524,8 @@ static void OITITraceOnce(NSString *message) {
 }
 
 // ---- OITI's element class ---------------------------------------------------------------------
-// A runtime subclass of Apple's SBSystemApertureProvidedContentElement that declares itself an alert (see poc9 note).
+// A runtime subclass of Apple's SBSystemApertureProvidedContentElement. The newest item is an alert;
+// older items become activities so SpringBoard can keep them in compact mode alongside the alert.
 static Class OITINoticeElementClass(void) {
     static Class elementClass;
     static dispatch_once_t once;
@@ -1379,9 +1537,11 @@ static Class OITINoticeElementClass(void) {
         Class created = objc_allocateClassPair(base, "OITINotificationElement", 0);
         if (!created) return;
         class_addMethod(created, NSSelectorFromString(@"hasAlertBehavior"),
-                        imp_implementationWithBlock(^BOOL(id receiver) { return YES; }), "B16@0:8");
+                        imp_implementationWithBlock(^BOOL(id receiver) { return OITIIsAlertNoticeElement(receiver); }), "B16@0:8");
         class_addMethod(created, NSSelectorFromString(@"hasActivityBehavior"),
-                        imp_implementationWithBlock(^BOOL(id receiver) { return NO; }), "B16@0:8");
+                        imp_implementationWithBlock(^BOOL(id receiver) {
+                            return OITIIsOurElement(receiver) && !OITIIsAlertNoticeElement(receiver);
+                        }), "B16@0:8");
         class_addMethod(created, NSSelectorFromString(@"hasIndicatorBehavior"),
                         imp_implementationWithBlock(^BOOL(id receiver) { return NO; }), "B16@0:8");
         class_addMethod(created, NSSelectorFromString(@"preferredAlertingDuration:"),
@@ -1422,8 +1582,68 @@ static UIImage *OITIRoundedIcon(UIImage *image, CGFloat side) {
 
 // The two views of the compact element, like the lock element's leading and trailing views: the app icon on the left
 // and a short label on the right. Both are sized (frame = what they need) because Apple asks them sizeThatFits.
+@interface OITINoticeStackView : UIStackView
+@end
+
+@implementation OITINoticeStackView
+- (CGSize)sizeThatFits:(CGSize)size {
+    CGFloat width = size.width > 0 ? MIN(size.width, 260.0) : 260.0;
+    CGSize target = CGSizeMake(width, UILayoutFittingCompressedSize.height);
+    CGSize fitted = [self systemLayoutSizeFittingSize:target
+                       withHorizontalFittingPriority:UILayoutPriorityRequired
+                             verticalFittingPriority:UILayoutPriorityFittingSizeLevel];
+    return CGSizeMake(width, ceil(fitted.height));
+}
+@end
+
+@implementation OITIStartupVideoView
++ (Class)layerClass { return [AVPlayerLayer class]; }
+
+- (instancetype)initWithURL:(NSURL *)url {
+    self = [super initWithFrame:CGRectZero];
+    if (!self) return nil;
+    AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
+    _player = [AVPlayer playerWithPlayerItem:item];
+    _player.muted = YES;
+    AVPlayerLayer *playerLayer = (AVPlayerLayer *)self.layer;
+    playerLayer.player = _player;
+    // Keep the familiar 16:9 Island content frame; the video is pre-cropped with safe margins
+    // so aspect-fill enlarges the word without cutting off either end.
+    playerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
+    self.backgroundColor = UIColor.blackColor;
+    self.layer.cornerRadius = 24.0;
+    self.layer.cornerCurve = kCACornerCurveContinuous;
+    self.layer.masksToBounds = YES;
+    self.isAccessibilityElement = NO;
+    return self;
+}
+
+- (CGSize)intrinsicContentSize { return CGSizeMake(260.0, 146.0); }
+- (CGSize)sizeThatFits:(CGSize)size { return CGSizeMake(260.0, 146.0); }
+- (NSTimeInterval)mediaDuration {
+    NSTimeInterval duration = CMTimeGetSeconds(self.player.currentItem.duration);
+    return isfinite(duration) && duration > 0 ? duration : 0;
+}
+- (void)startPlayback { [self.player seekToTime:kCMTimeZero]; [self.player play]; }
+- (void)stopPlayback {
+    [self.player pause];
+    [self.player replaceCurrentItemWithPlayerItem:nil];
+}
+@end
+
+static OITIStartupVideoView *OITIBuildStartupVideoView(void) {
+    if (![[NSFileManager defaultManager] fileExistsAtPath:kOITIStartupHelloVideoPath]) {
+        [sLog logLevel:1 tag:@"HELLO" format:@"video asset missing at %@; retaining the placeholder card", kOITIStartupHelloVideoPath];
+        return nil;
+    }
+    NSURL *url = [NSURL fileURLWithPath:kOITIStartupHelloVideoPath];
+    OITIStartupVideoView *view = [[OITIStartupVideoView alloc] initWithURL:url];
+    if (view) [sLog logLevel:1 tag:@"HELLO" format:@"created muted, single-play video view duration=%.2fs", (double)view.mediaDuration];
+    return view;
+}
+
 static void OITIBuildNoticeViews(NSDictionary<NSString *, NSString *> *info, UIView **leadingOut, UIView **trailingOut,
-                                 UIView **primaryOut, UIView **secondaryOut) {
+                                 UIView **primaryOut, UIView **secondaryOut, UILabel **secondaryBodyOut) {
     NSString *bundleID = info[@"bundleID"] ?: @"";
     NSString *title = info[@"title"] ?: @"";
     NSString *subtitle = info[@"subtitle"] ?: @"";
@@ -1479,13 +1699,107 @@ static void OITIBuildNoticeViews(NSDictionary<NSString *, NSString *> *info, UIV
     secondary.numberOfLines = lines;
     secondary.lineBreakMode = NSLineBreakByTruncatingTail;
     secondary.text = body;
-    CGSize secondarySize = [secondary sizeThatFits:CGSizeMake(260, CGFLOAT_MAX)];
-    secondary.frame = CGRectMake(0, 0, MIN(260, ceil(secondarySize.width)), ceil(secondarySize.height));
+    secondary.preferredMaxLayoutWidth = 260;
+    OITINoticeStackView *secondaryStack = [OITINoticeStackView new];
+    secondaryStack.axis = UILayoutConstraintAxisVertical;
+    secondaryStack.alignment = UIStackViewAlignmentFill;
+    secondaryStack.distribution = UIStackViewDistributionFill;
+    secondaryStack.spacing = 8;
+    [secondaryStack addArrangedSubview:secondary];
+    CGSize secondarySize = [secondaryStack sizeThatFits:CGSizeMake(260, CGFLOAT_MAX)];
+    secondaryStack.frame = CGRectMake(0, 0, secondarySize.width, secondarySize.height);
 
     *leadingOut = leading;
     *trailingOut = trailing;
     *primaryOut = primary;
-    *secondaryOut = secondary;
+    *secondaryOut = secondaryStack;
+    if (secondaryBodyOut) *secondaryBodyOut = secondary;
+}
+
+static UIView *OITIBuildCompactNoticeCard(NSDictionary<NSString *, NSString *> *info) {
+    NSString *bundleID = info[@"bundleID"] ?: @"";
+    NSString *appName = info[@"appName"] ?: @"";
+    if (!appName.length && bundleID.length) appName = [bundleID componentsSeparatedByString:@"."].lastObject ?: @"";
+    NSString *title = info[@"title"] ?: @"";
+    NSString *message = info[@"message"] ?: @"";
+    NSString *labelText = title.length ? title : (message.length ? message : appName);
+    if (appName.length && title.length) labelText = [NSString stringWithFormat:@"%@ · %@", appName, title];
+
+    UIStackView *row = [UIStackView new];
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.alignment = UIStackViewAlignmentCenter;
+    row.distribution = UIStackViewDistributionFill;
+    row.spacing = 6;
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    [row.heightAnchor constraintEqualToConstant:24].active = YES;
+
+    UIImage *icon = nil;
+    if (bundleID.length && [UIImage respondsToSelector:@selector(_applicationIconImageForBundleIdentifier:format:scale:)]) {
+        icon = [UIImage _applicationIconImageForBundleIdentifier:bundleID format:0 scale:[UIScreen mainScreen].scale];
+    }
+    UIImage *smallIcon = OITIRoundedIcon(icon, 16);
+    if (smallIcon) {
+        UIImageView *iconView = [[UIImageView alloc] initWithImage:smallIcon];
+        iconView.translatesAutoresizingMaskIntoConstraints = NO;
+        [iconView.widthAnchor constraintEqualToConstant:18].active = YES;
+        [iconView.heightAnchor constraintEqualToConstant:18].active = YES;
+        [row addArrangedSubview:iconView];
+    }
+
+    UILabel *label = [UILabel new];
+    label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    label.textColor = [UIColor colorWithWhite:1.0 alpha:0.92];
+    label.lineBreakMode = NSLineBreakByTruncatingTail;
+    label.numberOfLines = 1;
+    label.text = OITIShortText(labelText, 42);
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [label setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [row addArrangedSubview:label];
+    UIView *card = [UIView new];
+    card.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.13];
+    card.layer.cornerRadius = 10;
+    card.layer.cornerCurve = kCACornerCurveContinuous;
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    [card addSubview:row];
+    [NSLayoutConstraint activateConstraints:@[
+        [row.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:10],
+        [row.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-10],
+        [row.topAnchor constraintEqualToAnchor:card.topAnchor constant:5],
+        [row.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-5],
+        [card.heightAnchor constraintEqualToConstant:34],
+    ]];
+    return card;
+}
+
+// Present older notices as visually distinct, spaced compact cards beneath the current expanded notice.
+static void OITIRefreshNewestNoticeComposite(void) {
+    NSDictionary *item = sIslandNoticeItems.lastObject;
+    if (!item || OITINoticeStyle() == 0) return;
+    OITINoticeStackView *stack = item[@"secondaryStack"];
+    UIView *body = item[@"secondaryBody"];
+    if (!stack || !body) return;
+
+    for (UIView *view in [stack.arrangedSubviews copy]) {
+        if (view == body) continue;
+        [stack removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    NSUInteger olderCount = sIslandNoticeItems.count > 0 ? sIslandNoticeItems.count - 1 : 0;
+    for (NSUInteger i = 0; i < olderCount; i++) {
+        NSDictionary *older = sIslandNoticeItems[i];
+        NSDictionary *info = older[@"info"];
+        if (info) [stack addArrangedSubview:OITIBuildCompactNoticeCard(info)];
+    }
+
+    CGSize size = [stack sizeThatFits:CGSizeMake(260, CGFLOAT_MAX)];
+    stack.frame = CGRectMake(stack.frame.origin.x, stack.frame.origin.y, size.width, size.height);
+    [stack invalidateIntrinsicContentSize];
+    for (UIView *view = stack.superview; view; view = view.superview) [view setNeedsLayout];
+    [stack.superview layoutIfNeeded];
+    [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK separate-cards newest=%@ compactCards=%lu size=%.1fx%.1f",
+     OITIKVCObject(item[@"element"], @"elementIdentifier"), (unsigned long)olderCount,
+     (double)size.width, (double)size.height];
 }
 
 // ---- Corner radius adjustment (IslandNotificationsCornerExtra) -------------------------------
@@ -1701,7 +2015,9 @@ static BOOL OITIExecuteStockBannerTap(id request) {
         id candidate = OITIKVCObject(controller, @"notificationRequest");
         if (request && candidate && (candidate == request || [candidate isEqual:request])) { target = controller; break; }
     }
-    if (!target && request && found.count == 1) target = found.firstObject;   // one banner on screen, and this one has a request
+    // With a stack, another notification's banner may be the only one left on screen. Never route an
+    // older item's tap to that unrelated banner; only use the sole-banner fallback when no request exists.
+    if (!target && !request && found.count == 1) target = found.firstObject;
     if (!target || ![target respondsToSelector:execute]) {
         [sLog logLevel:1 tag:@"ELEMENT" format:@"tap: no matching stock banner (found %lu), using the fallback", (unsigned long)found.count];
         return NO;
@@ -1754,7 +2070,11 @@ static BOOL OITIExecuteStockBannerTap(id request) {
     if (!OITIExecuteStockBannerTap(self.request)) {   // fallbacks: the default action's URL, then just the app
         if (!(url && OITIOpenURL(url))) OITIOpenApp(self.bundleID);
     }
-    if (self.dismiss) self.dismiss();
+    // Opening a notification does not remove it from the stack; it remains until timeout or swipe dismissal.
+    __weak OITINoticeActions *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        weakSelf.handled = NO;   // window and element recognizers share one tap, but later taps should still work
+    });
 }
 - (void)handleSwipe:(UIGestureRecognizer *)recognizer {
     if (self.handled) return;
@@ -1766,7 +2086,7 @@ static BOOL OITIExecuteStockBannerTap(id request) {
 
 // Tries the invalidation selectors Apple's assertion-like objects usually have. Logs what it found.
 static void OITIDismissNoticeItem(NSDictionary *item) {
-    OITIRestoreCorners();
+    if (sIslandNoticeItems.count <= 1) OITIRestoreCorners();
     for (UIGestureRecognizer *recognizer in item[@"recognizers"]) [recognizer.view removeGestureRecognizer:recognizer];
     if ([item isKindOfClass:[NSMutableDictionary class]]) {   // break the item -> actions -> dismiss block -> item cycle
         NSMutableDictionary *mutableItem = (NSMutableDictionary *)item;
@@ -1834,12 +2154,6 @@ static void OITIDismissNoticeItem(NSDictionary *item) {
 // Creates one element from `info`, registers it and schedules its removal. Main thread only.
 static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSString *reason) {
     @synchronized ([NSNull null]) { [sTraceSeen removeAllObjects]; }
-    if (sIslandNoticeItems.count) {   // a new notification replaces the one on screen
-        NSArray<NSDictionary *> *previous = [sIslandNoticeItems copy];
-        [sIslandNoticeItems removeAllObjects];
-        for (NSDictionary *old in previous) OITIDismissNoticeItem(old);
-        [sLog logLevel:1 tag:@"ELEMENT" format:@"replaced %lu element(s) already on screen", (unsigned long)previous.count];
-    }
     if (sPoCDisabledAfterFailure) {
         [sLog logTag:@"ELEMENT" format:@"element creation is off until the next respring (the promotion guard caught %d exceptions)", sPoCFailureCount];
         return NO;
@@ -1862,14 +2176,42 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
         return NO;
     }
 
+    if (!sIslandNoticeItems) sIslandNoticeItems = [NSMutableArray array];
+    BOOL startupHello = [reason isEqualToString:@"startup-hello"];
+    NSInteger style = startupHello ? 2 : OITINoticeStyle();
+    if (!sIslandNotificationStackEnabled && sIslandNoticeItems.count) {
+        NSArray<NSDictionary *> *previousItems = [sIslandNoticeItems copy];
+        for (NSDictionary *previous in previousItems) OITIRemoveNoticeItem(previous, @"stack-disabled-replaced");
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK disabled; replacing prior items with newest notification"];
+    }
+    if (sIslandNoticeItems.count && style != 0) {
+        // The previous alert now enters the compact stack; its visible time starts again here.
+        OITIScheduleNoticeTimeout((NSMutableDictionary *)sIslandNoticeItems.lastObject);
+    }
+    for (NSDictionary *existing in sIslandNoticeItems) OITISetNoticeLayout(existing, style, NO);
+
+    NSMutableDictionary *item = nil;
     @try {
         Class containerClass = NSClassFromString(@"SBUISystemApertureContentProvider");
         if (!containerClass) {
             [sLog logTag:@"ELEMENT" format:@"missing class SBUISystemApertureContentProvider"];
+            if (sIslandNoticeItems.count && style != 0) OITISetNoticeLayout(sIslandNoticeItems.lastObject, style, YES);
             return NO;
         }
         UIView *leadingView = nil, *trailingView = nil, *primaryView = nil, *secondaryView = nil;
-        OITIBuildNoticeViews(info, &leadingView, &trailingView, &primaryView, &secondaryView);
+        UILabel *secondaryBody = nil;
+        OITIBuildNoticeViews(info, &leadingView, &trailingView, &primaryView, &secondaryView, &secondaryBody);
+        OITIStartupVideoView *startupVideoView = startupHello ? OITIBuildStartupVideoView() : nil;
+        if (startupVideoView) {
+            // The normal notification chrome puts an app icon on the left and a short title on
+            // the trailing side. A startup animation is the entire card, so leave those slots
+            // empty and let the video occupy the expanded content area by itself.
+            leadingView = [[UIView alloc] initWithFrame:CGRectZero];
+            trailingView = [[UIView alloc] initWithFrame:CGRectZero];
+            primaryView = startupVideoView;
+            secondaryView = [[UIView alloc] initWithFrame:CGRectZero];
+            secondaryBody = nil;
+        }
         id leadingProvider = [[providerClass alloc] initWithView:leadingView];
         id trailingProvider = [[providerClass alloc] initWithView:trailingView];
         id primaryProvider = [[providerClass alloc] initWithView:primaryView];
@@ -1885,6 +2227,7 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
         id element = [[elementClass alloc] initWithIdentifier:identifierObject contentProvider:provider];
         if (!provider || !element) {
             [sLog logTag:@"ELEMENT" format:@"creation failed: provider=%@ element=%@", OITIObjectSummary(provider), OITIObjectSummary(element)];
+            if (sIslandNoticeItems.count && style != 0) OITISetNoticeLayout(sIslandNoticeItems.lastObject, style, YES);
             return NO;
         }
         OITIProbeObject(provider, @"provider");
@@ -1893,44 +2236,35 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
 
         [sLog logTag:@"ELEMENT" format:@"our element before layout values: %@", OITIElementValuesSummary(element)];
         [sLog logTag:@"ELEMENT" format:@"our element parts: %@", OITIElementPartsSummary(element)];
-        NSInteger style = (NSInteger)lround([sOITIPreferences floatForKey:@"IslandNotificationsStyle" default:2]);
-        NSInteger layoutVariant = style == 0 ? 1 : (style == 1 ? 6 : 5);   // compact, wide, expanded
-        NSInteger devVariant = (NSInteger)lround([sOITIPreferences floatForKey:@"IslandNotificationsDevLayout" default:-1]);
-        if (devVariant >= 0) layoutVariant = devVariant;
-        NSNumber *wantMin = nil, *wantMax = nil, *wantPreferred = nil;
-        if (layoutVariant == 1) {            // compact only, exactly the lock element's 1 / 1 / 1
-            wantMin = @1; wantMax = @1; wantPreferred = @1;
-        } else if (layoutVariant == 2 && sRealLayoutValues) {   // copy the first real element
-            wantMin = sRealLayoutValues[@"minimum"]; wantMax = sRealLayoutValues[@"maximum"]; wantPreferred = sRealLayoutValues[@"preferred"];
-        } else if (layoutVariant == 3) {     // compact up to the widest range Apple uses (in-call: 1 / 3 / 2)
-            wantMin = @1; wantMax = @3; wantPreferred = @2;
-        } else if (layoutVariant == 4) {     // the charging alert's values: min -1 / preferred 2 / max 2
-            wantMin = @(-1); wantMax = @2; wantPreferred = @2;
-        } else if (layoutVariant == 5) {     // expanded first: min 1 / preferred 3 / max 3
-            wantMin = @1; wantMax = @3; wantPreferred = @3;
-        } else if (layoutVariant == 6) {     // wide: the status bar pill's values, min 1 / preferred 2 / max 2
-            wantMin = @1; wantMax = @2; wantPreferred = @2;
-        }
-        if (wantMin && wantMax && wantPreferred) {
-            SEL setPreferred = NSSelectorFromString(@"setPreferredLayoutMode:");
-            SEL setMinimum = NSSelectorFromString(@"setMinimumSupportedLayoutMode:");
-            SEL setMaximum = NSSelectorFromString(@"setMaximumSupportedLayoutMode:");
-            if ([element respondsToSelector:setMinimum]) ((void (*)(id, SEL, NSInteger))objc_msgSend)(element, setMinimum, wantMin.integerValue);
-            if ([element respondsToSelector:setMaximum]) ((void (*)(id, SEL, NSInteger))objc_msgSend)(element, setMaximum, wantMax.integerValue);
-            if ([element respondsToSelector:setPreferred]) ((void (*)(id, SEL, NSInteger))objc_msgSend)(element, setPreferred, wantPreferred.integerValue);
-            [sLog logTag:@"ELEMENT" format:@"layout variant %ld applied: %@", (long)layoutVariant, OITIElementValuesSummary(element)];
-        } else {
-            [sLog logTag:@"ELEMENT" format:@"layout variant %ld: leaving the element's defaults", (long)layoutVariant];
-        }
-
-        if (!sIslandNoticeItems) sIslandNoticeItems = [NSMutableArray array];
-        NSMutableDictionary *item = [NSMutableDictionary dictionary];
+        item = [NSMutableDictionary dictionary];
         item[@"leadingView"] = leadingView; item[@"trailingView"] = trailingView; item[@"leadingProvider"] = leadingProvider;
         item[@"primaryView"] = primaryView; item[@"secondaryView"] = secondaryView;
+        item[@"secondaryStack"] = secondaryView; item[@"secondaryBody"] = secondaryBody; item[@"info"] = [info copy];
         item[@"primaryProvider"] = primaryProvider; item[@"secondaryProvider"] = secondaryProvider;
         item[@"trailingProvider"] = trailingProvider; item[@"provider"] = provider; item[@"element"] = element; item[@"manager"] = registrar;
         if (sPendingNoticeRequest) item[@"request"] = sPendingNoticeRequest;
+        if (startupHello) {
+            item[@"startupHello"] = @YES;
+            if (startupVideoView) {
+                item[@"startupVideoView"] = startupVideoView;
+                NSTimeInterval duration = startupVideoView.mediaDuration;
+                item[@"timeoutDuration"] = @(duration > 0 ? MIN(duration + 2.0, 120.0) : 60.0);
+            } else {
+                item[@"timeoutDuration"] = @(kOITIStartupHelloPrototypeDuration);
+            }
+        }
+        OITISetNoticeLayout(item, style, YES);
+        NSUInteger stackLimit = sIslandNotificationStackEnabled ? kOITINoticeStackLimit : 1;
+        while (sIslandNoticeItems.count >= stackLimit) {
+            NSDictionary *oldest = sIslandNoticeItems.firstObject;
+            [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK full (%lu); evicting oldest %@",
+             (unsigned long)kOITINoticeStackLimit, OITIKVCObject(oldest[@"element"], @"elementIdentifier")];
+            OITIRemoveNoticeItem(oldest, @"capacity");
+        }
         [sIslandNoticeItems addObject:item];   // added BEFORE registering so the promotion guard knows an OITI element is live
+        if (startupHello) sStartupHelloItem = item;
+        OITIScheduleNoticeTimeout(item);
+        OITIRefreshNewestNoticeComposite();
 
         sPoCOurRegistrationInFlight = YES;
         id registration = [(SAUISystemApertureManager *)registrar registerElement:element];
@@ -1939,6 +2273,33 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
         OITIProbeObject(registration, @"registration");
         [sLog logTag:@"ELEMENT" format:@"registered %@ (%@) registrar=%@ registration=%@ duration=%.1fs", identifier, reason,
          OITIObjectSummary(registrar), OITIObjectSummary(registration), (double)sIslandNoticeDuration];
+
+        if (startupVideoView) {
+            __weak NSMutableDictionary *weakItem = item;
+            NSMutableArray *observers = [NSMutableArray array];
+            for (NSString *notificationName in @[AVPlayerItemDidPlayToEndTimeNotification,
+                                                  AVPlayerItemFailedToPlayToEndTimeNotification]) {
+                id observer = [[NSNotificationCenter defaultCenter]
+                    addObserverForName:notificationName
+                    object:startupVideoView.player.currentItem
+                    queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification *notification) {
+                        NSMutableDictionary *strongItem = weakItem;
+                        if (!strongItem || ![sIslandNoticeItems containsObject:strongItem]) return;
+                        BOOL failed = [notification.name isEqualToString:AVPlayerItemFailedToPlayToEndTimeNotification];
+                        [sLog logLevel:1 tag:@"HELLO" format:@"video %@; removing startup element %@",
+                         failed ? @"playback failed" : @"reached end", failed ? notification.userInfo : @""];
+                        OITIRemoveNoticeItem(strongItem, failed ? @"video-failed" : @"video-finished");
+                    }];
+                if (observer) [observers addObject:observer];
+            }
+            item[@"playbackObservers"] = observers;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if (![sIslandNoticeItems containsObject:item]) return;
+                [startupVideoView startPlayback];
+                [sLog logLevel:1 tag:@"HELLO" format:@"video playback started"];
+            });
+        }
 
         if ([sLog isLoggingAtLevel:1]) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -1972,9 +2333,7 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
             actions.request = item[@"request"];
             actions.host = host;
             actions.dismiss = ^{
-                if (![sIslandNoticeItems containsObject:item]) return;
-                [sIslandNoticeItems removeObject:item];
-                OITIDismissNoticeItem(item);
+                OITIRemoveNoticeItem(item, @"swipe");
             };
             // Recognizers on the element view and on the Island window (the window ones only take touches that start inside the
             // element): some touches may be taken before they reach the element view, and the TOUCH lines show which route works.
@@ -2011,16 +2370,12 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
                 });
             }
         }
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sIslandNoticeDuration * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            if (![sIslandNoticeItems containsObject:item]) return;   // already dismissed by the promotion guard
-            OITIDismissNoticeItem(item);
-            [sIslandNoticeItems removeObject:item];
-        });
         return YES;
     } @catch (NSException *exception) {
         sPoCOurRegistrationInFlight = NO;
         [sLog logTag:@"ELEMENT" format:@"exception while creating/registering the element: %@ %@", exception.name, exception.reason];
+        if ([sIslandNoticeItems containsObject:item]) OITIRemoveNoticeItem(item, @"registration-error");
+        else if (sIslandNoticeItems.count && style != 0) OITISetNoticeLayout(sIslandNoticeItems.lastObject, style, YES);
         return NO;
     }
 }
@@ -2041,6 +2396,106 @@ static void OITIRunPoCElement(NSString *reason) {
             info = @{ @"bundleID": sampleBundle, @"appName": @"", @"title": row(0), @"subtitle": row(3), @"message": row(1) };
         }
         OITIPresentNoticeElement(info, reason);
+    });
+}
+
+// First-stage prototype: verify launch gating and Island handoff with the existing custom-content element.
+// The final Hello video and dedicated media view are intentionally not part of this prototype.
+static BOOL OITISafeBool(id object, NSString *selectorName, BOOL *available) {
+    if (available) *available = NO;
+    if (!object || !selectorName.length) return NO;
+    SEL selector = NSSelectorFromString(selectorName);
+    if (![object respondsToSelector:selector]) return NO;
+    NSMethodSignature *signature = [object methodSignatureForSelector:selector];
+    if (!signature || signature.numberOfArguments != 2) return NO;
+    const char *returnType = signature.methodReturnType;
+    if (!returnType || (returnType[0] != 'B' && returnType[0] != 'c')) return NO;
+    if (available) *available = YES;
+    return ((BOOL (*)(id, SEL))objc_msgSend)(object, selector);
+}
+
+static BOOL OITIStartupHelloIsAtUnlockedHomeScreen(BOOL *stateAvailable) {
+    if (stateAvailable) *stateAvailable = NO;
+    Class lockClass = NSClassFromString(@"SBLockScreenManager");
+    id lockManager = OITISafeObject(lockClass, @"sharedInstance");
+    BOOL lockStateAvailable = NO;
+    BOOL locked = OITISafeBool(lockManager, @"isUILocked", &lockStateAvailable);
+
+    Class workspaceClass = NSClassFromString(@"SBMainWorkspace");
+    id workspace = OITISafeObject(workspaceClass, @"sharedInstance");
+    BOOL homeStateAvailable = NO;
+    BOOL springBoardFrontmost = OITISafeBool(workspace, @"isSpringBoardActive", &homeStateAvailable);
+
+    BOOL unlocked = lockStateAvailable && !locked && UIApplication.sharedApplication.protectedDataAvailable;
+    BOOL atHome = homeStateAvailable && springBoardFrontmost;
+    if (stateAvailable) *stateAvailable = lockStateAvailable && homeStateAvailable;
+    return unlocked && atHome;
+}
+
+static BOOL OITIStartupHelloHasActiveSystemElement(void) {
+    id manager = sRegisteringManager ?: sSeenManager;
+    id elements = OITISafeObject(manager, @"registeredElements");
+    if (![elements conformsToProtocol:@protocol(NSFastEnumeration)]) return NO;
+    for (id element in elements) {
+        if (!OITIIsOurElement(element) && !OITIIsBaselineLockElement(element) &&
+            !OITIIsChargingSystemElement(element)) return YES;
+    }
+    return NO;
+}
+
+static void OITIRunStartupHello(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!islandStartupHelloEnabled) { sStartupHelloObservationWindowOpen = NO; return; }
+        if (!islandEnabled) {
+            sStartupHelloObservationWindowOpen = NO;
+            [sLog logLevel:1 tag:@"HELLO" format:@"startup prototype skipped because the Dynamic Island is disabled"];
+            return;
+        }
+        BOOL stateAvailable = NO;
+        if (!OITIStartupHelloIsAtUnlockedHomeScreen(&stateAvailable)) {
+            sStartupHelloObservationWindowOpen = NO;
+            if (!stateAvailable) {
+                if (!sStartupHelloReadinessLogged) {
+                    [sLog logLevel:1 tag:@"HELLO" format:@"waiting for unlock/Home Screen state (SpringBoard state selectors unavailable or not ready)"];
+                    sStartupHelloReadinessLogged = YES;
+                }
+            } else if (sStartupHelloReadinessLogged) {
+                [sLog logLevel:1 tag:@"HELLO" format:@"waiting until unlocked on the Home Screen"];
+                sStartupHelloReadinessLogged = NO;
+            }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{ OITIRunStartupHello(); });
+            return;
+        }
+        sStartupHelloReadinessLogged = NO;
+        sStartupHelloObservationWindowOpen = YES;
+        if (sStartupHelloActivitySeen || OITIStartupHelloHasActiveSystemElement()) {
+            sStartupHelloObservationWindowOpen = NO;
+            [sLog logLevel:1 tag:@"HELLO" format:@"startup prototype skipped because Island activity is already present"];
+            return;
+        }
+        if (sStartupHelloItem || sIslandNoticeItems.count) {
+            sStartupHelloObservationWindowOpen = NO;
+            [sLog logLevel:1 tag:@"HELLO" format:@"startup prototype skipped because an OITI Island item is already active"];
+            return;
+        }
+        NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+        NSTimeInterval last = [sOITIPreferences floatForKey:kOITIStartupHelloLastPlayedKey default:0];
+        if (last > 0 && now >= last && now - last < kOITIStartupHelloCooldown) {
+            sStartupHelloObservationWindowOpen = NO;
+            [sLog logLevel:1 tag:@"HELLO" format:@"startup prototype suppressed by five-minute cooldown (%.0f seconds remain)",
+             kOITIStartupHelloCooldown - (now - last)];
+            return;
+        }
+        // Persist only after the Island element was registered, so a failed presentation does not consume the cooldown.
+        NSDictionary *info = @{ @"bundleID": @"com.apple.Preferences", @"appName": @"OITI",
+                                @"title": @"Hello", @"subtitle": @"", @"message": @"Startup animation prototype" };
+        BOOL shown = OITIPresentNoticeElement(info, @"startup-hello");
+        sStartupHelloObservationWindowOpen = NO;
+        if (shown) {
+            [sOITIPreferences setObject:@(now) forKey:kOITIStartupHelloLastPlayedKey];
+            [sOITIPreferences synchronize];
+        }
+        [sLog logLevel:1 tag:@"HELLO" format:@"startup prototype %@", shown ? @"presented" : @"could not be presented"];
     });
 }
 
@@ -2066,6 +2521,12 @@ static void OITIPlayNotificationHaptic(void) {
 // A banner request arrived. Always safe: log-only unless the feature is on.
 static void OITIHandleBannerRequest(id destination, id request) {
     if ([sOITIPreferences boolForKey:@"NotificationHaptic" default:NO]) OITIPlayNotificationHaptic();
+    if (sStartupHelloObservationWindowOpen && islandStartupHelloEnabled) sStartupHelloActivitySeen = YES;
+    if (sStartupHelloItem) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            OITICancelStartupHello(@"notification");
+        });
+    }
     if (!islandNotificationsEnabled && !(sLog.enabled && sLog.level >= 1)) return;
     NSDictionary<NSString *, NSString *> *info = OITINoticeInfoFromRequest(request);
     [sLog logLevel:1 tag:@"NOTIF" format:@"banner request %@ bundle=%@ app=%@ title=%@ message=%@ (feature %@)",
@@ -2076,6 +2537,7 @@ static void OITIHandleBannerRequest(id destination, id request) {
     __weak id weakDestination = destination;
     id requestRef = request;
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (!islandNotificationsEnabled) return;   // the setting may have been turned off before this queued block ran
         sPendingNoticeRequest = requestRef;
         BOOL shown = OITIPresentNoticeElement(info, @"notification");
         sPendingNoticeRequest = nil;
@@ -2224,7 +2686,24 @@ static void OITIInstallIslandNotificationHooks(void) {
 
 - (id)registerElement:(id)element {
     if (!sSystemApertureController) sSystemApertureController = self;
-    return %orig;
+    id result = %orig;
+    BOOL chargingElement = OITIIsChargingSystemElement(element);
+    if (sStartupHelloObservationWindowOpen && islandStartupHelloEnabled &&
+        !OITIIsOurElement(element) && !OITIIsBaselineLockElement(element) && !chargingElement) {
+        sStartupHelloActivitySeen = YES;
+        [sLog logLevel:1 tag:@"HELLO" format:@"startup activity observed before prototype presentation: %@ identifier=%@",
+         OITIObjectSummary(element), OITIKVCObject(element, @"elementIdentifier")];
+    }
+    if (sStartupHelloItem && element != sStartupHelloItem[@"element"] && !OITIIsOurElement(element)) {
+        [sLog logLevel:1 tag:@"HELLO" format:@"system activity registered during startup playback: %@ identifier=%@",
+         OITIObjectSummary(element), OITIKVCObject(element, @"elementIdentifier")];
+        if (chargingElement) {
+            [sLog logLevel:1 tag:@"HELLO" format:@"charging activity retained until startup playback finishes"];
+        } else {
+            OITICancelStartupHello(@"system-element-registration");
+        }
+    }
+    return result;
 }
 
 %end
@@ -2309,6 +2788,21 @@ static void OITIInstallIslandNotificationHooks(void) {
 
 - (id)elementsOrderedByPromotionFromTemporallyOrderedElements:(id)elements withPreviousOrdering:(id)previous {
     id result = %orig;
+    if (sStartupHelloItem && [result isKindOfClass:[NSArray class]]) {
+        NSMutableArray *ordered = [result mutableCopy];
+        id helloElement = sStartupHelloItem[@"element"];
+        NSUInteger helloIndex = [ordered indexOfObjectIdenticalTo:helloElement];
+        NSUInteger chargingIndex = NSNotFound;
+        for (NSUInteger i = 0; i < ordered.count; i++) {
+            if (OITIIsChargingSystemElement(ordered[i])) { chargingIndex = i; break; }
+        }
+        if (helloIndex != NSNotFound && chargingIndex != NSNotFound && helloIndex > chargingIndex) {
+            [ordered removeObjectAtIndex:helloIndex];
+            [ordered insertObject:helloElement atIndex:chargingIndex];
+            result = [ordered copy];
+            [sLog logLevel:1 tag:@"HELLO" format:@"promoted startup animation ahead of charging activity"];
+        }
+    }
     if (sIslandNoticeItems.count && [sLog isLoggingAtLevel:1]) {
         [sLog logTag:@"ELEMENT" format:@"AUTH in=%@ previous=%@ out=%@", OITIElementIdentifierList(elements),
          OITIElementIdentifierList(previous), OITIElementIdentifierList(result)];
@@ -2596,6 +3090,9 @@ static void OITIRefreshIslandLayout(void) {
 }
 
 static void preferencesChanged(void) {
+    BOOL islandNotificationsWereEnabled = islandNotificationsEnabled;
+    BOOL islandNotificationStackWasEnabled = sIslandNotificationStackEnabled;
+    BOOL startupHelloWasEnabled = islandStartupHelloEnabled;
     if (!sOITIPreferences) {
         sOITIPreferences = [OITPreferences preferencesWithDomain:kOITIPrefsDomain];
     } else {
@@ -2614,8 +3111,40 @@ static void preferencesChanged(void) {
     lineDisabled = [sOITIPreferences boolForKey:@"lineDisabled" default:NO];
     islandNotificationsEnabled = [sOITIPreferences boolForKey:@"islandNotificationsEnabled" default:NO];
     islandNotificationsHideBanner = [sOITIPreferences boolForKey:@"islandNotificationsHideBanner" default:NO];
+    sIslandNotificationStackEnabled = [sOITIPreferences boolForKey:@"islandNotificationStackEnabled" default:YES];
+    islandStartupHelloEnabled = [sOITIPreferences boolForKey:@"IslandStartupHelloEnabled" default:NO];
     CGFloat noticeDuration = [sOITIPreferences floatForKey:@"IslandNotificationsDuration" default:4.0];
     sIslandNoticeDuration = isfinite(noticeDuration) ? MAX(1.0, MIN(15.0, noticeDuration)) : 4.0;
+
+    if (startupHelloWasEnabled && !islandStartupHelloEnabled) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            OITICancelStartupHello(@"disabled-in-settings");
+        });
+    }
+
+    if (islandNotificationStackWasEnabled && !sIslandNotificationStackEnabled) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSArray<NSDictionary *> *items = [sIslandNoticeItems copy];
+            if (items.count > 1) {
+                for (NSUInteger i = 0; i + 1 < items.count; i++) {
+                    OITIRemoveNoticeItem(items[i], @"stack-disabled");
+                }
+            }
+            [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK disabled from Settings; retained newest item and cleared older items"];
+        });
+    }
+
+    if (islandNotificationsWereEnabled && !islandNotificationsEnabled) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSArray<NSDictionary *> *items = [sIslandNoticeItems copy];
+            for (NSDictionary *item in items) OITIRemoveNoticeItem(item, @"feature-disabled");
+            if (sBannerHideActive) {
+                OITIRestoreBannerWindows();
+                sBannerHideActive = NO;
+            }
+            [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK cleared because Island Notifications was turned off"];
+        });
+    }
 
     // Defaults match the globals above (and the prefs UI).
     xPos = [sOITIPreferences floatForKey:@"xPos" default:0.0];
@@ -2680,6 +3209,7 @@ static void preferencesChanged(void) {
     sLoggedStatusBars = [NSHashTable weakObjectsHashTable];
 
     preferencesChanged();
+    sStartupHelloObservationWindowOpen = NO;
 
     OITObserveDarwinNotification(kOITIPrefsChangedNotification, ^{
         preferencesChanged();
@@ -2702,6 +3232,7 @@ static void preferencesChanged(void) {
         }
         OITIInstallIslandNotificationHooks();
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            OITIRunStartupHello();
             if (sLog.enabled && sLog.level >= 1 &&
                 [sOITIPreferences boolForKey:@"IslandNotificationsHelloOnBoot" default:NO]) {
                 OITIRunPoCElement(@"boot+10s");

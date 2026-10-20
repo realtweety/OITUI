@@ -8,5 +8,6 @@
 
 // Name of the specifier plist to load ("Root", "Color", "Scale", "Notifications").
 - (NSString *)oiti_plistName;
+- (void)oitiRefreshSettingsPage;
 
 @end

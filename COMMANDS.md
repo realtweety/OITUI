@@ -454,9 +454,9 @@ One-time repository settings (†). Allows only squash merges and deletes merged
 gh api -X PATCH repos/realtweety/OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases. Only for tested work that is already on `main`. Build on the **Mac**, ship OITCore and OITI together, never OITS until it is verified. `v0.1.0` has been released (`46cf122`). The commands below prepare the next patch release, `v0.1.1`.
+Releases are created only from tested work on `main`. Build on the **Mac**, ship OITCore and OITI together, and do not ship OITS until it is verified. The current release is `v0.2.0` (OITI package version `0.2.0`; OITCore remains `0.1.0`).
 
-First bump `Version:` in `OITI/control` (and `OITCore/control` if OITCore changed) to `0.1.1` through a normal pull request, then run on the Mac:
+After the PR is merged, run on the Mac from a clean checkout of `main`:
 
 ```
 cd ~/theos-projects/OITUI
@@ -464,6 +464,7 @@ git fetch --prune origin
 git switch main
 git pull --ff-only
 git log --oneline -3
+git status --short
 ```
 
 Clear old build outputs and build release packages (no install, no `+debug`):
@@ -490,12 +491,12 @@ dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb
 sbreload
 ```
 
-Then check the Island, the settings pages and the sliders. When it all works, publish from the Mac:
+Then check the Island, the settings pages and the sliders. When it all works, publish from the Mac. For `v0.2.0`:
 
 ```
-git tag -a v0.1.1 -m "OITUI 0.1.1"
-git push origin v0.1.1
-gh release create v0.1.1 --title "OITI 0.1.1" --generate-notes ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
+git tag -a v0.2.0 -m "OITUI 0.2.0"
+git push origin v0.2.0
+gh release create v0.2.0 --title "OITUI 0.2.0" --notes-file RELEASE_NOTES_0.2.0.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
 ```
 
 | Command | What it does | Where |
@@ -586,19 +587,36 @@ defaults write com.wilburt.oiti.prefs StatusBarLayout -string off
 
 Valid values are `auto`, `off`, or a `_UIStatusBarVisualProvider_*` class name from the `PROVIDER` lines. The phone's `defaults` has no delete mode, so write `auto` to go back. A wrong class can crash SpringBoard; after 5 launches in 120 s safe mode turns the hooks off, and the red bar returns but the phone stays usable.
 
-## 13. Island Notifications (OITI 0.2.0 Beta)
+## 13. Island Notifications (OITI 0.2.0)
 
 Island Notifications shows each notification banner as an Island element. It is off by default. The switches and sliders are on Settings > OITI > Notifications and write the domain `com.wilburt.oiti.prefs`. Everything except the install lines below needs the Island on (OITI's spoof or real hardware); otherwise the stock banner stays.
 
 | Key | Meaning |
 | --- | --- |
 | `islandNotificationsEnabled` | Show notifications in the Island (default off). |
+| `islandNotificationStackEnabled` | Keep a bounded stack of up to four notices (default on). Off keeps only the newest notice; toggling off clears older visible items. The Settings page warns that this is experimental and unpolished. |
 | `islandNotificationsHideBanner` | Fade the stock banner window while the Island element shows (default off). Only acts after the element registered. |
 | `IslandNotificationsStyle` | 0 Compact, 1 Wide, 2 Expanded (default). Compact and Wide are experimental. |
 | `IslandNotificationsDuration` | Seconds on screen, 2 to 10 (default 4). |
 | `IslandNotificationsMessageLines` | Message lines before the ellipsis, 1 to 4 (default 2). |
 | `IslandNotificationsCornerExtra` | Points added to the Island's corner radius while a notification shows, -4 to 8 (default 0). |
 | `NotificationHaptic` | One short light haptic per banner request (default off). Independent of the other switches. |
+
+### Experimental stack (owner-tested on iPhone 8 Plus / iOS 16.7.16)
+
+The stack keeps up to four notices, oldest to newest. In Expanded/Wide style the newest is the main notice and older notices render as individual rounded compact cards in its secondary content. They still share the outer expanded Island card. In Compact style all notices are compact. A fifth notice evicts the oldest. Each notice has its own timer; its lifetime resets when moved to compact or promoted. Swiping removes that notice, and removing the newest promotes the newest survivor. Tapping opens that notice but leaves its Island item until timeout or swipe. The owner has confirmed the stack appears; timing, overflow and the full interaction matrix still need additional checking.
+
+Regression checklist for a new build:
+
+1. With Expanded selected, send two different notifications close together. Confirm the first becomes Compact and the second is Expanded.
+2. Send four, then a fifth. Confirm the oldest disappears and the other four remain in newest-first order.
+3. Swipe away the newest and confirm the newest survivor expands. Swipe an older compact item and confirm the others stay in place.
+4. Tap a specific notice and confirm it opens the matching conversation/app, remains in the Island, and can still be swiped away.
+5. Repeat in Compact style and confirm all four are compact. Check that demoted items receive a fresh visible lifetime.
+6. Turn **Stack Multiple Notifications** off while notices are visible. Confirm the newest remains, older items clear, and each new notice replaces the previous one. Then turn Island Notifications off and confirm the stack clears, any hidden stock banner is restored, and new notifications use the stock path.
+7. Check `/tmp/OITIDebug.log` for `STACK`, `AUTH`, `TAP`, `SWIPE`, and any `GUARD caught` lines.
+
+The owner tested the current design on iOS 16.7.16, but real Dynamic Island hardware, other iOS builds, Compact/Wide styles and extended timeout behavior remain open. Leave the safe-mode guard enabled and allow two minutes between resprings.
 
 **Reporting a problem (testers).** First raise the log level, wait 2 minutes after the respring (safe mode counts quick launches), trigger one notification, then read the log:
 
@@ -624,7 +642,7 @@ defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0
 
 | Command | What to look for | Where |
 | --- | --- | --- |
-| `grep -E "SESSION\|SAFE" /tmp/OITIDebug.log` | The build tag `OITI-0.2.0-beta.1`, `READY hooks installed` and no `SAFE MODE`. | Phone |
+| `grep -E "SESSION\|SAFE" /tmp/OITIDebug.log` | The build tag `OITI-0.2.0`, `READY hooks installed` and no `SAFE MODE`. | Phone |
 | `grep -E "banner hook\|promotion guard" /tmp/OITIDebug.log` | `banner hook installed on ...` and `promotion guard installed ...` (also at level 0). `NOT installed` plus `CANDIDATES` lines means this iOS version needs a code change. | Phone |
 | `grep -E "banner request\|registered\|haptic played" /tmp/OITIDebug.log \| tail` | One `banner request` and one `registered` per notification (level 1); `haptic played` if the haptic is on. | Phone |
 | `grep -E "GUARD\|GESTURES\|TOUCH\|TAP\|tap ran\|SWIPE\|open app" /tmp/OITIDebug.log \| tail` | `GESTURES attached` per notification; after a tap `TAP on the notification element` and `tap ran -_executeDefaultAction:` (the fallback lines `tap: no matching stock banner` / `open app` mean the stock banner was already gone); `SWIPE up` after a swipe. A `GUARD caught` line is a bug report. | Phone |

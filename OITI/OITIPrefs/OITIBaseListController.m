@@ -2,12 +2,13 @@
 #import "OITIBaseListController.h"
 #import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 
-@interface OITIBaseListController ()
+@interface OITIBaseListController () <UITextFieldDelegate>
 @property (nonatomic, strong) UIScrollView *oiti_scrollView;
 @property (nonatomic, strong) UIStackView *oiti_contentStack;
 @end
@@ -169,6 +170,15 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     }
 }
 
+- (void)oitiRefreshSettingsPage {
+    [self.view endEditing:YES];
+    for (UIView *view in [self.oiti_contentStack.arrangedSubviews copy]) {
+        [self.oiti_contentStack removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    [self oiti_buildSettingsPage];
+}
+
 - (UIView *)oitiFootnote:(NSString *)text {
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero];
     label.text = text;
@@ -216,12 +226,23 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     [text setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
     [row addArrangedSubview:text];
     UISwitch *toggle = [[UISwitch alloc] initWithFrame:CGRectZero];
-    toggle.on = [[self readPreferenceValue:specifier] boolValue];
+    id savedValue = [self readPreferenceValue:specifier] ?: [specifier propertyForKey:@"default"] ?: @NO;
+    toggle.on = [savedValue boolValue];
     toggle.accessibilityLabel = [specifier propertyForKey:@"label"];
     [toggle addTarget:self action:@selector(oitiSwitchChanged:) forControlEvents:UIControlEventValueChanged];
     objc_setAssociatedObject(toggle, @selector(oitiSwitchChanged:), specifier, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(text, @selector(oitiSwitchChanged:), toggle, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    text.userInteractionEnabled = YES;
+    [text addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(oitiSwitchLabelTapped:)]];
     [row addArrangedSubview:toggle];
     return row;
+}
+
+- (void)oitiSwitchLabelTapped:(UITapGestureRecognizer *)gesture {
+    UISwitch *toggle = objc_getAssociatedObject(gesture.view, @selector(oitiSwitchChanged:));
+    if (!toggle || !toggle.enabled) return;
+    toggle.on = !toggle.on;
+    [self oitiSwitchChanged:toggle];
 }
 
 - (void)oitiSwitchChanged:(UISwitch *)sender {
@@ -247,6 +268,7 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     UISlider *slider = [[UISlider alloc] initWithFrame:CGRectZero];
     slider.minimumValue = min.floatValue; slider.maximumValue = max.floatValue; slider.value = value.floatValue;
     [slider addTarget:self action:@selector(oitiSliderChanged:) forControlEvents:UIControlEventValueChanged];
+    [slider addTarget:self action:@selector(oitiSliderFinished:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     objc_setAssociatedObject(slider, @selector(oitiSliderChanged:), specifier, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(slider, @selector(oitiSliderValueLabel:), number, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [row addArrangedSubview:top]; [row addArrangedSubview:slider];
@@ -257,7 +279,45 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     UILabel *value = objc_getAssociatedObject(slider, @selector(oitiSliderValueLabel:));
     value.text = [NSString stringWithFormat:@"%.2f", slider.value];
     PSSpecifier *specifier = objc_getAssociatedObject(slider, @selector(oitiSliderChanged:));
+    NSMutableDictionary *state = objc_getAssociatedObject(slider, @selector(oitiSliderState:));
+    if (!state) {
+        state = [NSMutableDictionary dictionary];
+        objc_setAssociatedObject(slider, @selector(oitiSliderState:), state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    dispatch_block_t pending = state[@"pending"];
+    if (pending) return; // one trailing write will save the newest slider value
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    NSTimeInterval last = [state[@"lastWrite"] doubleValue];
+    NSTimeInterval delay = MAX(0.0, 0.12 - (now - last));
+    if (delay <= 0.0) {
+        [self setPreferenceValue:@(slider.value) specifier:specifier];
+        state[@"lastWrite"] = @(now);
+        return;
+    }
+    __weak UISlider *weakSlider = slider;
+    __weak OITIBaseListController *weakSelf = self;
+    dispatch_block_t block = dispatch_block_create((dispatch_block_flags_t)0, ^{
+        UISlider *strongSlider = weakSlider;
+        OITIBaseListController *strongSelf = weakSelf;
+        if (!strongSlider || !strongSelf) return;
+        NSMutableDictionary *liveState = objc_getAssociatedObject(strongSlider, @selector(oitiSliderState:));
+        if (liveState[@"pending"] != [NSNull null]) [liveState removeObjectForKey:@"pending"];
+        PSSpecifier *liveSpecifier = objc_getAssociatedObject(strongSlider, @selector(oitiSliderChanged:));
+        [strongSelf setPreferenceValue:@(strongSlider.value) specifier:liveSpecifier];
+        liveState[@"lastWrite"] = @(NSProcessInfo.processInfo.systemUptime);
+    });
+    state[@"pending"] = block;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), block);
+}
+
+- (void)oitiSliderFinished:(UISlider *)slider {
+    NSMutableDictionary *state = objc_getAssociatedObject(slider, @selector(oitiSliderState:));
+    dispatch_block_t pending = state[@"pending"];
+    if (pending) dispatch_block_cancel(pending);
+    [state removeObjectForKey:@"pending"];
+    PSSpecifier *specifier = objc_getAssociatedObject(slider, @selector(oitiSliderChanged:));
     [self setPreferenceValue:@(slider.value) specifier:specifier];
+    state[@"lastWrite"] = @(NSProcessInfo.processInfo.systemUptime);
 }
 
 - (UIView *)oitiTextRow:(PSSpecifier *)specifier {
@@ -269,7 +329,8 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     field.placeholder = [specifier propertyForKey:@"placeholder"];
     field.textAlignment = NSTextAlignmentRight; field.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
     field.borderStyle = UITextBorderStyleRoundedRect; field.returnKeyType = UIReturnKeyDone;
-    [field addTarget:self action:@selector(oitiTextChanged:) forControlEvents:UIControlEventEditingChanged];
+    field.delegate = self;
+    [field addTarget:self action:@selector(oitiTextChanged:) forControlEvents:UIControlEventEditingDidEnd];
     objc_setAssociatedObject(field, @selector(oitiTextChanged:), specifier, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [row addArrangedSubview:field];
     [field.widthAnchor constraintGreaterThanOrEqualToConstant:82].active = YES;
@@ -279,6 +340,11 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 - (void)oitiTextChanged:(UITextField *)field {
     PSSpecifier *specifier = objc_getAssociatedObject(field, @selector(oitiTextChanged:));
     if (field.text) [self setPreferenceValue:field.text specifier:specifier];
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    [textField resignFirstResponder];
+    return YES;
 }
 
 - (UIView *)oitiButtonRow:(PSSpecifier *)specifier {
@@ -298,14 +364,12 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     SEL selector = NSSelectorFromString(action);
     if (!action.length || ![self respondsToSelector:selector]) return;
     NSMethodSignature *signature = [self methodSignatureForSelector:selector];
-    NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
-    invocation.target = self;
-    invocation.selector = selector;
-    if (signature.numberOfArguments > 2) {
-        id argument = sender;
-        [invocation setArgument:&argument atIndex:2];
+    if (!signature) return;
+    if (signature.numberOfArguments == 2) {
+        ((void (*)(id, SEL))objc_msgSend)(self, selector);
+    } else if (signature.numberOfArguments == 3) {
+        ((void (*)(id, SEL, id))objc_msgSend)(self, selector, sender);
     }
-    [invocation invoke];
 }
 
 - (UIView *)oitiLinkRow:(PSSpecifier *)specifier {
@@ -341,6 +405,7 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     UIStackView *row = [[UIStackView alloc] initWithFrame:CGRectZero]; row.axis = UILayoutConstraintAxisHorizontal; row.spacing = 8;
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero]; title.text = [specifier propertyForKey:@"label"]; title.textColor = UIColor.labelColor; title.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
     UILabel *current = [[UILabel alloc] initWithFrame:CGRectZero]; current.textColor = UIColor.secondaryLabelColor; current.textAlignment = NSTextAlignmentRight; current.font = [UIFont systemFontOfSize:13];
+    objc_setAssociatedObject(button, @selector(oitiChooseValue:), current, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     NSArray *values = [specifier propertyForKey:@"validValues"] ?: @[]; NSArray *titles = [specifier propertyForKey:@"validTitles"] ?: values;
     id selected = [self readPreferenceValue:specifier] ?: [specifier propertyForKey:@"default"];
     NSUInteger index = [values indexOfObject:selected]; current.text = index < titles.count ? titles[index] : @"Choose";
@@ -362,11 +427,8 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
         id value = values[i];
         [sheet addAction:[UIAlertAction actionWithTitle:(i < titles.count ? titles[i] : [value description]) style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
             [self setPreferenceValue:value specifier:specifier];
-            for (UIView *view in [self.oiti_contentStack.arrangedSubviews copy]) {
-                [self.oiti_contentStack removeArrangedSubview:view];
-                [view removeFromSuperview];
-            }
-            [self oiti_buildSettingsPage];
+            UILabel *current = objc_getAssociatedObject(sender, @selector(oitiChooseValue:));
+            current.text = i < titles.count ? titles[i] : [value description];
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];

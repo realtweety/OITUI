@@ -8,9 +8,31 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
-        <string>Island Notifications (Beta)</string>
+        <string>Experimental Notification Stack</string>
         <key>footerText</key>
-        <string>Beta. Shows incoming notifications as an element in the Dynamic Island, and hides the stock banner. If anything looks wrong, turn these off and the stock banners come back. Works only while the Island is on.</string>
+        <string>Early feature: it is usable, but not polished. Multiple notifications can overlap, change size or disappear unexpectedly, and the layout may look different across devices. Turn this off to show only one Island notification at a time. Island Notifications must also be enabled.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <true/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>islandNotificationStackEnabled</string>
+        <key>label</key>
+        <string>Stack Multiple Notifications (Experimental)</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Island Notifications</string>
+        <key>footerText</key>
+        <string>Shows incoming notifications in the Dynamic Island. Disable this to stop using Island notifications. Requires the Island to be enabled.</string>
       </dict>
       <dict>
         <key>cell</key>

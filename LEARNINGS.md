@@ -81,6 +81,12 @@ See `DIAGNOSTICS.md` for the OITS tags, trigger file and commands.
 - **Find the missing requirement by tracing what Apple asks.** Hook `respondsToSelector:`, `conformsToProtocol:`, `isKindOfClass:` and the accessors on the element class, filter to your own element, log each distinct message once and read the last question before the failure. Add log-only hooks on the lookup functions (`VCFOR`, `VCINIT`, authority `AUTH`) to see which call returns nil.
 - **Keep experiment keys out of shipped pickers.** A leftover `defaults write` value from testing (`IslandNotificationsPoCLayout`) would have silently overridden the new Style picker, so the developer override got a new key name.
 
+## Island notification stack (tested on iPhone 8 Plus, iOS 16.7.16; experimental)
+
+- The owner sent bursts of four test notices and confirmed a visible stack. Capacity is four, ordered oldest to newest. Expanded/Wide keeps the newest as the main notice and displays older compact cards in the expanded element's secondary content; the compact cards are visually separate, but they share one outer expanded Island card. Compact style keeps every notice compact.
+- New notices evict the oldest at capacity. Each item can expire or be swiped away independently; removing the newest promotes its newest survivor. The expiration timer restarts when an item is demoted to compact or promoted. Tapping opens that notice and leaves it until timeout or swipe.
+- Settings expose `islandNotificationStackEnabled` (default on, to preserve the previous behavior) independently from `islandNotificationsEnabled` (default off). The Settings warning describes the stack as usable but not polished. Turning stacking off retains the newest visible item and clears older ones; new notices replace the previous item.
+
 ## Build, packaging and tooling pitfalls
 
 - **Theos picks up headers from `$THEOS/include` before your project's.** A stale installed copy shadows your edit. Import the module's own header with quotes (`#import "OITLog.h"`) inside that module, and rebuild OITCore first so the install step refreshes the copy.
