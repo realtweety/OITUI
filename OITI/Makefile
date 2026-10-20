@@ -8,6 +8,7 @@ TWEAK_NAME = OITI
 
 OITI_FILES = Tweak.xm
 OITI_CFLAGS = -fobjc-arc
+OITI_FRAMEWORKS = UIKit AVFoundation
 OITI_LDFLAGS += $(THEOS)/lib/iphone/rootless/OITCore.dylib
 
 include $(THEOS_MAKE_PATH)/tweak.mk

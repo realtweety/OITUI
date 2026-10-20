@@ -2,7 +2,7 @@ include $(THEOS)/makefiles/common.mk
 
 BUNDLE_NAME = OITIPrefs
 
-OITIPrefs_FILES = OITIBaseListController.m OITIRootListController.m OITIColorListController.m OITIScaleListController.m OITINotificationsListController.m
+OITIPrefs_FILES = OITIBaseListController.m OITIRootListController.m OITIColorListController.m OITIScaleListController.m OITINotificationsListController.m OITIStartupListController.m
 OITIPrefs_FRAMEWORKS = UIKit
 OITIPrefs_INSTALL_PATH = /Library/PreferenceBundles
 OITIPrefs_CFLAGS = -fobjc-arc

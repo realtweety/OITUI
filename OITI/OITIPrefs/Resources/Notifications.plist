@@ -7,6 +7,200 @@
       <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Experimental Notification Stack</string>
+        <key>footerText</key>
+        <string>Early feature: it is usable, but not polished. Multiple notifications can overlap, change size or disappear unexpectedly, and the layout may look different across devices. Turn this off to show only one Island notification at a time. Island Notifications must also be enabled.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <true/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>islandNotificationStackEnabled</string>
+        <key>label</key>
+        <string>Stack Multiple Notifications (Experimental)</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Island Notifications</string>
+        <key>footerText</key>
+        <string>Shows incoming notifications in the Dynamic Island. Disable this to stop using Island notifications. Requires the Island to be enabled.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>islandNotificationsEnabled</string>
+        <key>label</key>
+        <string>Show Notifications in the Island</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>islandNotificationsHideBanner</string>
+        <key>label</key>
+        <string>Hide the Stock Banner</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Island Notification Style</string>
+        <key>footerText</key>
+        <string>Expanded shows the app icon, title and message. Wide and Compact are smaller pills. Takes effect on the next notification.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSLinkListCell</string>
+        <key>detail</key>
+        <string>PSListItemsController</string>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>IslandNotificationsStyle</string>
+        <key>default</key>
+        <integer>2</integer>
+        <key>label</key>
+        <string>Style</string>
+        <key>validTitles</key>
+        <array>
+          <string>Compact</string>
+          <string>Wide</string>
+          <string>Expanded</string>
+        </array>
+        <key>validValues</key>
+        <array>
+          <integer>0</integer>
+          <integer>1</integer>
+          <integer>2</integer>
+        </array>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Haptics</string>
+        <key>footerText</key>
+        <string>A short, light tap when a notification banner arrives. Works with or without Island Notifications. Follows the system's Haptics setting. Not played for notifications that go straight to the lock screen.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>NotificationHaptic</string>
+        <key>label</key>
+        <string>Notification Haptic</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Island Notification Duration</string>
+        <key>footerText</key>
+        <string>How many seconds each notification stays in the Island. Tap it to open the app, swipe up to dismiss.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>default</key>
+        <real>4.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>IslandNotificationsDuration</string>
+        <key>min</key>
+        <real>2.0</real>
+        <key>max</key>
+        <real>10.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Island Notification Message Lines</string>
+        <key>footerText</key>
+        <string>How many lines of the message are shown before it is cut off with an ellipsis. The Island grows to fit.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>default</key>
+        <real>2.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>IslandNotificationsMessageLines</string>
+        <key>min</key>
+        <real>1.0</real>
+        <key>max</key>
+        <real>4.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Island Notification Roundness</string>
+        <key>footerText</key>
+        <string>Adds to the Island's corner radius while a notification is showing. 0 is Apple's shape.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>default</key>
+        <real>0.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>IslandNotificationsCornerExtra</string>
+        <key>min</key>
+        <real>-4.0</real>
+        <key>max</key>
+        <real>8.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
         <key>footerText</key>
         <string>Moves all incoming notification banners to below the Dynamic Island for better visibility.</string>
       </dict>

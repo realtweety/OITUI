@@ -2,10 +2,16 @@
 
 
 
-## Up Next (OITI)
+## OITI: current state and next candidates
 
-- **Island-native content via Apple's own element API.** Research is done enough to start (see `OVERVIEW.md`, "Island research findings"). Order of work: (1) log-only hooks on `-[SBSystemApertureProvidedContentElement initWithIdentifier:contentProvider:]` and `-[SAUISystemApertureManager registerElement:]` while charging, Spotify and a timer are active, plus a protocol dump; (2) a proof-of-concept "hello" element created on demand, modeled on `SBChargingSystemApertureElementProvider`; (3) Island-native notifications (app icon, app name, short message) instead of the stock banner; (4) a queue / stack controller using the authority's ordering logic; (5) progress bars. Open questions: truncation rules, what happens when a second notification arrives while one is showing.
+- **Island Notifications (0.2.0; stack tested on-device).** The owner tested bursts of four on an iPhone 8 Plus running iOS 16.7.16. In Expanded/Wide style, the newest notice is the main expanded item and older ones appear as separate rounded compact cards in its secondary content; they still share the system's outer expanded Island card. Compact style keeps all notices compact. Capacity is four; new notices evict the oldest. Timeout restarts on demotion to compact and promotion, and items can be dismissed individually. Lock-screen-only deliveries still bypass the banner path. The stack is usable but explicitly experimental and not polished.
+- **Settings controls (device-tested).** The owner reports the controls feel more responsive after reducing slider preference-write frequency, saving text fields on editing end, updating picker labels in place, making switch labels tappable, and refreshing custom controls after reset actions.
+- **Dedicated toggles:** `islandNotificationsEnabled` controls custom Island notifications (default off); `islandNotificationStackEnabled` controls multi-notice stacking (default on to preserve existing behavior). Settings labels and warning text call out that stacking is experimental and usable but unpolished.
+- **Remaining notification work:** Verify Compact/Wide and real notification paths broadly, confirm timeout behavior over longer intervals, test on real Dynamic Island hardware and other iOS 16 builds. Keep the current card layout unless owner asks to revisit it. Progress bars are a possible later addition.
+- **Hello Startup Animation (0.2.0).** The off-by-default toggle waits until the device is unlocked and SpringBoard is active on the Home Screen, checks a persistent five-minute cooldown, and shows an expanded Island element. The owner confirmed the Home Screen gate, video sizing, cooldown, uninstall, toggle and interruption behavior on-device. The AVPlayer-backed view plays the supplied SVG-derived clip once without audio and removes the Island element when playback ends or fails. While it plays, charging activity is kept registered but placed behind the startup animation; calls and other Island activity take priority. The bundled H.264 clip is 1280×720, six seconds, white on black.
+- **Volume slider:** deferred after an initial implementation was removed because it did not work and did not seem broadly useful.
 - **Polish list** (owner chose to defer): live color, opacity and banner offset (add a relayout request like the size sliders); banner position at extreme Island sizes; make the X/Y scale relative to Apple's own size (screen width / canvas width, new keys, no migration); maybe lower the Island Height slider minimum (around 0.6 is where 22 pt artwork stops fitting, untested).
+- **Per-app exclude list for Island Notifications.** Deferred until someone asks for it (keep Phone or Timer on the stock banner, for example).
 - **OITS** is parked: revert or adapt to the `_UIStatusBarProvider_DynamicSplit` layout class, rebuild the lost diagnostic fixes, restore the scoping guard.
 
 ## Things I Think Would Be Nice
@@ -90,8 +96,7 @@ on-device measurement, not before.
 - OITI is a positioning/appearance shim over Apple's real Dynamic Island. `islandEnabled` spoofs `ArtworkDeviceSubType` (2556) so
   iOS builds SystemAperture; `Tweak.xm` hooks `SBSystemApertureWindow`, `SBBannerWindow` and a few appearance views. Island content
   (music, timers) is Apple's. The Island's expanded media player is rendered by the **MediaRemoteUI** process (per Crescendo's README).
-- Next research step: dump the `SBSystemApertureWindow` subtree with OITInspector while a stock element is active, then decide between
-  hooking Apple's element providers and drawing our own overlay.
+- Next research step (done in October 2026): the element route was chosen and works. Notes: `LEARNINGS.md`, "Island elements".
 
 ## Infrastructure ideas (from the OITI review and Crescendo)
 

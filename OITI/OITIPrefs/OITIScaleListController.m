@@ -50,7 +50,7 @@ static const CGFloat kOITIScaleSliderMax = 2.0;
     [prefs setObject:@1.0 forKey:@"MetricsSensorHeightScale"];
     [prefs synchronize];
     OITPostDarwinNotification(kOITIScalePrefsChangedNotification);
-    [self reloadSpecifiers];
+    [self oitiRefreshSettingsPage];
 }
 
 - (void)resetScale {
@@ -59,7 +59,7 @@ static const CGFloat kOITIScaleSliderMax = 2.0;
     [prefs setObject:@1.0 forKey:@"scaleY"];
     [prefs synchronize];
     OITPostDarwinNotification(kOITIScalePrefsChangedNotification);
-    [self reloadSpecifiers];
+    [self oitiRefreshSettingsPage];
 }
 
 @end

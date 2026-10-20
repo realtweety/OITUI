@@ -10,11 +10,26 @@ OITUI is a multi-module iOS jailbreak tweak suite targeting rootless iOS 16 (Dop
 - **OITInspector**: Read-only diagnostic tool for live window hierarchy dumps. It cannot see the status bar content root (`_UIStatusBar`).
 - **OITG**: Liquid Glass rendering, a GPL-3.0 fork of liquidass. Not scaffolded; intentionally deferred.
 
-Related docs: `LEARNINGS.md` (constraints, safe patterns, lessons), `DIAGNOSTICS.md` (logging, dumps, how to read them), `COMMANDS.md` (every command, copy-paste exact), `WORKFLOW.md` (git, PRs, releases), `IDEAS.md` (backlog and research notes), `OITUI_HISTORY.md`, `CREDITS.md` and `LICENSES.md`.
+Related docs: `LEARNINGS.md` (constraints, safe patterns, lessons), `DIAGNOSTICS.md` (logging, dumps, how to read them), `COMMANDS.md` (commands and workflows), `WORKFLOW.md` (git, PRs, releases), `IDEAS.md` (backlog and research notes), `OITUI_HISTORY.md`, and `Third Party Licenses/`.
 
 ## Where we left off (read first)
 
-*Mid-October 2026 (14 Oct). This section is the hand-over for a new chat in the same project.*
+*Updated 20 Oct 2026. The `v0.2.0` release candidate has passed the owner’s on-device checks and exact release-mode package install. See `WORKFLOW.md` for the main-branch release process.*
+
+### Current OITI development state (20 Oct 2026)
+- **Current installed release-mode package:** OITI `0.2.0` and OITCore `0.1.0`, built with `FINALPACKAGE=1` and installed/tested on the owner’s iPhone 8 Plus (iOS 16.7.16). Build tag: `OITI-0.2.0`.
+- **Island Notifications:** the owner tested notification bursts on an iPhone 8 Plus running iOS 16.7.16. The stack holds up to four notices; Expanded/Wide shows the newest as the main notice with older rounded compact cards in its secondary content, while Compact keeps them compact. The cards share the outer expanded Island card; a separate overlay design was considered and deferred. Timeout refresh on compact demotion/promotion is implemented but still needs timing confirmation. Stack visuals are usable, experimental, and explicitly described as unpolished in Settings.
+- **Settings toggles:** `islandNotificationsEnabled` (default off) enables custom Island notifications; `islandNotificationStackEnabled` (default on) enables multi-notice stacking. Turning stacking off keeps the newest visible item and clears older items; subsequent notices replace the previous one. The custom Settings control improvements were installed and the owner reported they feel better: throttled slider writes with a final commit, text-field commits on editing end, in-place choice updates, switch-label taps, and reset-button page refresh.
+- **Known coverage limits:** only tested on the owner’s iPhone 8 Plus running iOS 16.7.16; other devices, iOS versions, and real Dynamic Island hardware remain unverified. Notifications delivered only to the Lock Screen bypass the banner presentation hook.
+- **Hello Startup Animation prototype:** the off-by-default setting runs after respring/userspace reboot once the phone is unlocked on the Home Screen, with a five-minute cooldown. The muted AVPlayer view plays the six-second SVG-derived H.264 clip once and removes its Island element on completion or playback failure. The owner confirmed sizing, cooldown, charging deferral and interruptions on-device.
+
+### 0.2.0 Beta 1 public pre-release (18 Oct 2026)
+- **Island Notifications** first shipped as an individual Island element, with style, duration, tap, swipe and optional haptic controls. The bounded stack and Settings refinements were added after that beta.
+- **Version:** `OITI/control` was `0.2.0~beta.1`; public pre-release tag `v0.2.0-beta.1` (superseded by `v0.2.0`). See `WORKFLOW.md` for release steps.
+- **Confirmed on the iPhone 8 Plus (iOS 16.7.16):** Expanded style, real notifications, stock-banner hiding, settings sliders and corner roundness, tap-to-open and swipe dismissal.
+- **Safe by design:** if the controller, class or selector is missing, the stock banner is left alone. A guard wraps `_reevaluatePromotedElements` while an OITI element is live; diagnostics hooks install only at `DiagnosticsLevel` 1.
+
+### Earlier hand-over (14 Oct 2026)
 
 ### State of the repo
 - **Released v0.1.0** (tag on `main` at `46cf122`, OITCore + OITI `.deb` files built on the Mac with `FINALPACKAGE=1`). Claude downloaded the `v0.1.0-1` and `v0.1.0-2` packages later and confirmed each binary has arm64 and arm64e slices; the `iphoneos-arm64` in the file name is only the rootless package label.
@@ -36,7 +51,7 @@ Related docs: `LEARNINGS.md` (constraints, safe patterns, lessons), `DIAGNOSTICS
 - **OITS is broken on the owner's phone.** The owner manually set `UIStatusBarVisualProviderClassName` to `_UIStatusBarProvider_DynamicSplit` in `com.apple.UIKit.plist`. It looks good except the top half of the status bar clips into the top of the screen, and OITS positioning does not work with that layout class. Parked. `main` still has the OITS diagnostic build (`OITS-diag-2026-09-29-a`), which has never run in a clean state; do not ship OITS yet.
 
 ### Current focus: Island content
-Own content in the Island (notifications, queue, progress bars, volume slider). The class dumps show Apple already has an element model that we may be able to use directly instead of an overlay window. See the plan below.
+The Island Notification stack and Hello Animation prototype are implemented and owner-tested on the development device. The notification stack remains explicitly experimental and unpolished.
 - **Status bar fix (14 Oct).** A Reddit user (iPhone 13 mini, iOS 16.5.1, NathanLR) reported a red status bar titled `rdar:45025538` with the Island on. Cause: with the 2556 spoof, UIKit's `+[_UIStatusBarVisualProvider_iOS visualProviderSubclassForScreen:visualProviderInfo:]` returns `nil` for his screen and iOS falls back to a placeholder. OITI now hooks that method (always `%orig`) and, under **Status Bar Layout = Automatic** (new picker at the bottom of the OITI settings page), returns the device's native provider while the Island is on. Interim GitHub releases `v0.1.0-1` (diagnostic) and `v0.1.0-2` (fix, a non-final `0.1.0-8+debug` build) were sent to the tester, who confirmed the bar is gone. `0.1.1` is the cleaned-up release that replaces them (`FINALPACKAGE=1`, `control` version 0.1.1).
 - His native provider, read from his log with the Island off: `_UIStatusBarVisualProvider_Split1080_Wide`. The first fix used `Split1080` and also worked. His screen bounds are 375 x 812 points.
 - **Status bar fix:** only the iPhone 13 mini has a native provider read from a real log. Every other device uses a guess by native pixel width (828 for XR and 11, 1125, 1170, 1242, 1284), and the 828-pixel rule is untested. The `_Wide` variants probably belong to the iPhone 13 generation (smaller notch); not confirmed. The mini rows in `OITIDeviceProfiles.h` (`iPhone13,1`, `iPhone14,4`) now say 375 x 812 (the old 360 x 780 was wrong), which only matters for the banner fix and is untested on-device.
@@ -59,12 +74,14 @@ Own content in the Island (notifications, queue, progress bars, volume slider). 
 - `SBUISystemApertureElementConfiguration` (leading/trailing/minimal views, `keyColor`, `launchURL`, layout modes, `preferredCustomLayout`) and `SBUISystemApertureElementSource` are the client-facing pieces.
 - `SAUISystemApertureManager` has `registerElement:`, `registeredElements`, `orderedElementViewControllers` and `_maximumNumberOfSimultaneouslyVisibleElements`. `SBSystemApertureElementAuthority` has `elementsOrderedByPromotionFromTemporallyOrderedElements:withPreviousOrdering:` (the priority and queue logic). `SBSystemAperturePresentableManager` registers and invalidates elements.
 - `SBChargingSystemApertureElementProvider` (`powerElementWithBatteryCapacity:`) is a SpringBoard-side example of creating an element.
-- Open questions: how to obtain the live `SAUISystemApertureManager`, and what protocol an element must satisfy.
+- Answered in October 2026 (`LEARNINGS.md`, "Island elements"): register through `SBSystemApertureController`, the element must declare indicator / alert / activity behavior, and the first argument of `initWithIdentifier:contentProvider:` is an identifier object.
 
 ### Plan (Island content)
-1. **Research hooks (log-only, level 1).** Log calls to `-[SBSystemApertureProvidedContentElement initWithIdentifier:contentProvider:]` and `-[SAUISystemApertureManager registerElement:]` while charging, Spotify and a timer are active (identifiers, content provider classes, layout modes). Capture the manager instance. Add a protocol dump (`objc_copyProtocolList`, names containing "Aperture") and class query batches for the element protocols.
-2. **Proof of concept:** create one custom element (a "hello" leading label) on demand, using the charging provider as the template.
-3. **Then:** Island-native notifications, the queue and stacking logic, progress bars. The volume slider is separate (it needs OITI to load into MediaRemoteUI; see Licensing).
+1. Done: research hooks, proof of concept and Island-native notifications (0.2.0 Beta 1).
+2. Implemented and tested on the owner's device: a bounded four-notice stack, individual item expiration/dismissal, a Settings toggle and an experimental-feature warning. Some device/style/timing coverage remains.
+3. Candidate: Hello Animation using the existing aperture element path. Later/larger: volume slider work in MediaRemoteUI and SpringBoard.
+
+**Notification requirement (met):** the user-facing notification element has its own Settings toggle, `islandNotificationsEnabled`, defaulting to `NO`. When off, OITI does not create or present its custom notification element; the existing iOS notification path and OITI's separate banner-position settings stay available. The haptic (`NotificationHaptic`) is independent.
 
 ## Module state
 
@@ -77,7 +94,8 @@ Own content in the Island (notifications, queue, progress bars, volume slider). 
 - **Architecture:** OITI is not an Island renderer. `islandEnabled` writes `ArtworkDeviceSubType = 2556` into the MobileGestalt cache (backed up first, breadcrumb at `/var/mobile/Library/Preferences/OITIGestaltBackup.plist`, restored by `OITIRestoreGestalt` from `prerm`) so iOS 16 builds its real SystemAperture. `Tweak.xm` then hooks `SBSystemApertureWindow` (position and scale transform), `SBBannerWindow` (banner position), `_SBSystemApertureMagiciansCurtainView` and `_SBGainMapView` (hide), `_SBSystemApertureContainerViewContentView` (background color), `SBFTouchPassThroughView` (transparency, line hiding) and `SBUISystemApertureLayoutMetrics` (`sensorRegionSize`, the Island Size). Island content (music, timers) comes from Apple.
 - **Process scope:** OITI's constructor returns immediately outside SpringBoard.
 - **Safety:** respring-loop guard (5 launches in 120 s trips safe mode, hooks not installed; cleared by removing `OITISafeMode.plist` or reinstalling), startup self-check (`CHECK` lines), backup repair in the prefs bundle (opening settings or toggling the switch).
-- **Settings pages:** Root, Color, Scale (Island Size sliders, X/Y scale sliders, resets), Notifications. Settings write the domain `com.wilburt.oiti.prefs` and post `com.wilburt.oiti/PrefsChanged`.
+- **Island Notifications (0.2.0):** hook groups `OITIResearchHooks` (captures `SBSystemApertureController`, always on) and `OITIDiagnosticHooks` (level 1 only), plus the banner hook on `SBNotificationBannerDestination` and `_reevaluatePromotedElements` guard. Preference keys include `islandNotificationsEnabled`, `islandNotificationStackEnabled`, `islandNotificationsHideBanner`, style, duration, message lines, corner extra and haptic; developer keys are listed in `DIAGNOSTICS.md`. Log tags `NOTIF` and `ELEMENT`.
+- **Settings pages:** Root, Color, Scale (Island Size sliders, X/Y scale sliders, resets), Notifications (notification/stack toggles, style picker, haptic, duration, message lines, roundness, banner position). Slider writes are rate-limited and committed on release; text fields commit on editing end; picker selections update in place. Settings write `com.wilburt.oiti.prefs` and post `com.wilburt.oiti/PrefsChanged`.
 - **Diagnostics:** level 0 by default (only `SESSION`, `GUARD`, `SAFE`, `CHECK`). Level 1 enables events, the trigger-file poll and dumps. See `DIAGNOSTICS.md`.
 - **Known fragile spots:** `frame.origin` is written on a transformed window in `layoutSubviews`; the `SBBannerWindow -frame` getter returns constants; the `subviews.count == 4` heuristic on `SBFTouchPassThroughView` may change between iOS versions.
 - **Device table:** 17 models in `OITIDeviceProfiles.h`, seven marked verified. The 8 Plus has no entry and uses the custom path.
@@ -91,13 +109,13 @@ Own content in the Island (notifications, queue, progress bars, volume slider). 
 ## Licensing
 
 - MIT for OITCore. OITI / OITS licensing is still undecided. OITG is planned to use liquidass (GPL-3.0).
-- **Crescendo** ([Yves000/Crescendo](https://github.com/Yves000/Crescendo), GPL-3.0) only served as a reference. No code was copied. If a volume slider is added, write it clean-room from Apple's own classes, with separate toggles for the lock screen player and the Island player. Useful patterns: one predicate for visibility, expiring cross-process state, weak-captured view controllers in delayed blocks.
+- **Crescendo** ([Yves000/Crescendo](https://github.com/Yves000/Crescendo), GPL-3.0) only served as a reference. No code was copied. Island Notifications was likewise written from scratch; the ShimaStyle tweak (an overlay-window approach, no license file in its repository) was only a reference for what is possible, and its look was the visual target. If a volume slider is added, write it clean-room from Apple's own classes, with separate toggles for the lock screen player and the Island player. Useful patterns: one predicate for visibility, expiring cross-process state, weak-captured view controllers in delayed blocks.
 - Attribution and licensing live in one project-wide `CREDITS.md` and one `LICENSES.md`.
 
 ## Toolchain
 
 - **Machines:** Arch PC (primary, repo `~/OITUI`, Theos `~/theos` with `iPhoneOS16.5.sdk`, fish) and Mac (repo `~/theos-projects/OITUI`, `TARGET` pinned to `iphone:clang:16.5:16.0`). Arch builds print "incompatible arm64e ABI compiler" warnings: harmless on the arm64 iPhone 8 Plus, but **do not publish `.deb` files built on the Arch PC**.
-- **Packaging:** Theos rootless (`THEOS_PACKAGE_SCHEME=rootless`). Release builds use `FINALPACKAGE=1` (no `+debug`). All `control` files say `Version: 0.1.0`; dpkg sorts `0.0.10` below `0.1.0`, so keep versions ascending. OITI depends on `com.wilburt.oitcore`, so a release needs both packages.
+- **Packaging:** Theos rootless (`THEOS_PACKAGE_SCHEME=rootless`). Release builds use `FINALPACKAGE=1` (no `+debug`). OITCore's `control` says `0.1.0`; OITI's current release version is `0.2.0`. Dpkg sorts `0.0.10` below `0.1.0`, so keep versions ascending. OITI depends on `com.wilburt.oitcore`, so a release needs both packages.
 - **Deploy:** USB only. Run `iproxy 2222 22`, then `THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222 make package install` (Mac: `127.0.0.1`). WiFi SSH stopped resolving in September 2026.
 - **GitHub:** `gh auth login` and `gh auth setup-git` on each computer. The repo accepts squash merges only and deletes merged branches.
 - **Test device:** iPhone 8 Plus, jailbroken iOS 16.7.16. No real Dynamic Island hardware is available.
@@ -112,10 +130,13 @@ Own content in the Island (notifications, queue, progress bars, volume slider). 
 
 ## Open items
 
-- Island content research and proof of concept (above).
+- Island Notifications: broader coverage on other iOS 16 builds and real Dynamic Island hardware remains open. The stack is experimental; its separated cards remain inside the expanded element's secondary content.
+- Hello Animation prototype: remains off by default and is clearly labelled as a prototype. Owner testing confirmed cooldown and interruption behavior.
+- Volume slider: later feature. If pursued, keep it clean-room and test conflicts before implementation.
+- Per-app notification exclusion list only if testers ask.
 - Polish: live color, opacity and banner offset; banner position at extreme sizes; make the X/Y scale relative to Apple's own size (new keys, no migration); lower the Island Height slider minimum if wanted (about 0.6 is where 22 pt artwork stops fitting, untested).
 - OITS: revert or adapt to the new layout class, rebuild the lost diagnostic fixes, restore the scoping guard.
-- Test the uninstall path and the release packages on a clean install.
+- Additional coverage on other devices, iOS versions, and real Dynamic Island hardware.
 - Table entries for iPhone 8 / 8 Plus (`iPhone10,1/10,2/10,4/10,5`) once measured.
 - lldb debugging via XcodeRootDebug/USB was attempted unsuccessfully and remains an open goal. OITG is deferred.
 - Status bar fix: collect a native provider from other devices (Island off, `grep CHOICE`), especially iPhone XR and 11, 12 mini and the 12/13 families; add them to `OITINativeProviderNameForScreen`. Idea for later: record the native provider to a flat plist whenever `CHOICE` runs with the Island off (the default after install), and use that instead of a table.
@@ -124,6 +145,6 @@ Own content in the Island (notifications, queue, progress bars, volume slider). 
 ## Starting a new chat
 
 1. Upload `OVERVIEW.md`, `LEARNINGS.md`, `IDEAS.md`, `DIAGNOSTICS.md`, `COMMANDS.md` and `WORKFLOW.md`. Do not re-upload source; upload only the specific files a task needs.
-2. Say which task to start from "Plan (Island content)" above.
+2. Say which task to start from "Open items" above.
 3. Claude can clone the public repo in its sandbox to read code, but cannot run git on your machines, view GitHub web pages, or use the GitHub API reliably (rate-limited). Give it terminal output as pasted text and large logs as uploaded files.
 4. Deliveries come as a `.tar.gz` of full files with repo-relative paths; extract it on `experiments` with `tar -xzf` (`COMMANDS.md`, section 10).

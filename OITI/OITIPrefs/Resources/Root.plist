@@ -150,6 +150,16 @@
 	      <key>cell</key>
 	      <string>PSLinkCell</string>
 	      <key>detail</key>
+	      <string>OITIStartupListController</string>
+	      <key>isController</key>
+	      <true/>
+	      <key>label</key>
+	      <string>Startup Animation</string>
+      </dict>
+      <dict>
+	      <key>cell</key>
+	      <string>PSLinkCell</string>
+	      <key>detail</key>
 	      <string>OITINotificationsListController</string>
 	      <key>isController</key>
 	      <true/>
