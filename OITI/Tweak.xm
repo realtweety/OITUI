@@ -61,7 +61,9 @@
 // fall-through) is unchanged. Step 2 adds only logging, diagnostics and safety; no hook changes what it does:
 //   1. OITLogger logging (/tmp/OITIDebug.log), see "Log tags" below.
 //   2. Respring-loop guard: after repeated short-lived SpringBoard launches, OITI's hooks are not installed
-//      (safe mode) until the safe-mode file is cleared.
+//      (safe mode) until the safe-mode file is cleared. A respring requested from OITI's own settings (Respring
+//      button, Clear Safe Mode) leaves OITIRespringIntent.plist and is not counted (UNTESTED, see OVERVIEW.md).
+//      The settings pages show a safe-mode banner with a Clear Safe Mode & Respring button.
 //   3. Startup self-check of the MobileGestalt spoof (islandEnabled vs. the cache, and the restore breadcrumb).
 //   4. On-demand dump of the Island window's view tree, view-controller tree, Apple's "aperture" classes and
 //      the methods/ivars of any classes you list. This is the data the Step 3 research needs.
@@ -93,8 +95,8 @@
 // Dump trigger:  touch /tmp/OITIDump.trigger        (polled once a second; detected by modification time)
 //                or Darwin notification com.wilburt.oiti/Dump
 // Class query:   put class names, one per line, in /tmp/OITIClassQuery.txt before triggering a dump
-// Clear safe mode: rm /var/mobile/Library/Preferences/OITISafeMode.plist  (or notification
-//                com.wilburt.oiti/ClearSafeMode), then respring
+// Clear safe mode: the banner on any OITI settings page, or rm /var/mobile/Library/Preferences/OITISafeMode.plist
+//                (or notification com.wilburt.oiti/ClearSafeMode), then respring
 // Prefs keys (domain com.wilburt.oiti.prefs, set with `defaults write`, no UI yet):
 //   DiagnosticsEnabled (bool, default YES)      DiagnosticsLevel (0-2, default 0)
 //   SafeModeGuardEnabled (bool, default YES)    SafeModeMaxLaunches (int, default 5)
@@ -123,7 +125,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-0.2.0";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-20-a";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -140,6 +142,11 @@ static const NSTimeInterval kOITIStartupHelloPrototypeDuration = 8.0;
 
 static NSString * const kOITIBootLogPath = @"/var/mobile/Library/Preferences/OITIBootLog.plist";
 static NSString * const kOITISafeModePath = @"/var/mobile/Library/Preferences/OITISafeMode.plist";
+// Written by OITI's settings pages just before they ask for a respring (Respring button, Clear Safe Mode). The loop
+// guard consumes it: a respring the user asked for is not a crash, so that launch is not counted. Older than
+// kOITIRespringIntentMaxAge seconds it is ignored.
+static NSString * const kOITIRespringIntentPath = @"/var/mobile/Library/Preferences/OITIRespringIntent.plist";
+static const NSTimeInterval kOITIRespringIntentMaxAge = 30.0;
 static NSString * const kOITIGestaltBackupBreadcrumbPath = @"/var/mobile/Library/Preferences/OITIGestaltBackup.plist";
 static NSString * const kOITIGestaltPlistPath = @"/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/com.apple.MobileGestalt.plist";
 static NSString * const kOITIGestaltCacheExtraKey = @"CacheExtra";
@@ -936,6 +943,24 @@ static BOOL OITIEvaluateLoopGuard(void) {
     }
 
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+
+    // A respring requested from OITI's settings pages is not a crash. The marker is consumed either way (a stale
+    // one is deleted and ignored), and a fresh one means the previous SpringBoard was healthy enough to be asked
+    // to restart, so the launch history is forgotten instead of grown.
+    NSDictionary *intent = [NSDictionary dictionaryWithContentsOfFile:kOITIRespringIntentPath];
+    if (intent) {
+        [[NSFileManager defaultManager] removeItemAtPath:kOITIRespringIntentPath error:nil];
+        id intentTime = intent[@"time"];
+        NSTimeInterval intentAge = [intentTime isKindOfClass:[NSNumber class]] ? now - [intentTime doubleValue] : -1;
+        if (intentAge >= 0 && intentAge < kOITIRespringIntentMaxAge) {
+            [@{ @"launches": @[] } writeToFile:kOITIBootLogPath atomically:YES];
+            [sLog logTag:@"GUARD" format:@"respring requested from OITI settings %.0f s ago: launch not counted, history cleared",
+             intentAge];
+            return NO;
+        }
+        [sLog logTag:@"GUARD" format:@"ignored a stale respring marker (age %.0f s)", intentAge];
+    }
+
     NSDictionary *bootLog = [NSDictionary dictionaryWithContentsOfFile:kOITIBootLogPath];
     NSMutableArray<NSNumber *> *launches = [NSMutableArray array];
     id stored = bootLog[@"launches"];

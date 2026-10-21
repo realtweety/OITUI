@@ -328,6 +328,17 @@ If the Island looks broken, run the "Back to Apple's own size" block. If SpringB
 | `rm /var/mobile/Library/Preferences/OITISafeMode.plist` | Clears safe mode. Respring afterwards. | Phone |
 | `rm -f /var/mobile/Library/Preferences/OITISafeMode.plist /var/mobile/Library/Preferences/OITIBootLog.plist` | Clears safe mode and the launch history. Respring afterwards. | Phone |
 | `grep -e GUARD -e SAFE /tmp/OITIDebug.log` | The guard's decisions. | Phone |
+| `cat /var/mobile/Library/Preferences/OITIRespringIntent.plist` | The marker OITI's settings leave just before they respring (Respring button, Clear Safe Mode). The guard deletes it on the next launch, so an error here is normal. † | Phone |
+
+Safe mode also shows as a banner at the top of every OITI settings page, with a **Clear Safe Mode & Respring** button (†, `experiments` build `OITI-exp-2026-10-20-a`). A respring started from OITI's own Respring button or that button is not counted as a possible crash: the guard logs `respring requested from OITI settings N s ago: launch not counted, history cleared`. A respring from anywhere else (`sbreload`, another tweak, Dopamine) still counts.
+
+Test the marker (†). After each respring wait for the Island, then reopen Settings > OITI and tap Respring again. Do this six times about 20 seconds apart, then:
+
+```
+grep -e GUARD -e SAFE /tmp/OITIDebug.log | tail -n 20
+```
+
+Every launch after the first should say `launch not counted`, and there should be no `TRIPPED`. Then check that a real loop is still caught: run `sbreload` over SSH five times, about 10 seconds apart. The fifth launch should log `TRIPPED`, OITI's changes disappear, and the banner appears on the settings pages. Tap **Clear Safe Mode & Respring** and confirm OITI's changes return.
 
 Deliberately trip the guard (†). This fakes four recent launches, so the next respring is the fifth:
 

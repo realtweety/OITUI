@@ -131,7 +131,9 @@ defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
 sbreload
 ```
 
-Safe mode: after 5 SpringBoard launches within 120 s OITI stops installing its hooks until `/var/mobile/Library/Preferences/OITISafeMode.plist` is removed (or Darwin notification `com.wilburt.oiti/ClearSafeMode`), then respring. Installing or upgrading the package clears it.
+Safe mode: after 5 SpringBoard launches within 120 s OITI stops installing its hooks until `/var/mobile/Library/Preferences/OITISafeMode.plist` is removed (or Darwin notification `com.wilburt.oiti/ClearSafeMode`, or the **Clear Safe Mode & Respring** button in the banner that every OITI settings page shows while it is on), then respring. Installing or upgrading the package clears it.
+
+A respring requested from OITI's own settings (the Respring button, or Clear Safe Mode) first writes `/var/mobile/Library/Preferences/OITIRespringIntent.plist` with a timestamp. On the next launch the guard deletes it; if it is under 30 s old the launch is not counted and the launch history is cleared (`GUARD respring requested from OITI settings N s ago: launch not counted, history cleared`). An older marker is ignored (`GUARD ignored a stale respring marker`). Resprings from elsewhere still count, so a real crash loop trips the guard as before. Untested on-device (build `OITI-exp-2026-10-20-a`).
 
 ### OITI dump contents
 

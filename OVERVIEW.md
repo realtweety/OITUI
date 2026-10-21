@@ -140,7 +140,7 @@ The Island Notification stack and Hello Animation prototype are implemented and 
 - Table entries for iPhone 8 / 8 Plus (`iPhone10,1/10,2/10,4/10,5`) once measured.
 - lldb debugging via XcodeRootDebug/USB was attempted unsuccessfully and remains an open goal. OITG is deferred.
 - Status bar fix: collect a native provider from other devices (Island off, `grep CHOICE`), especially iPhone XR and 11, 12 mini and the 12/13 families; add them to `OITINativeProviderNameForScreen`. Idea for later: record the native provider to a flat plist whenever `CHOICE` runs with the Island off (the default after install), and use that instead of a table.
-- Make safe mode visible in the settings page and reconsider the 45 s stability window: a tester tripped it in 100 s by respringing while changing settings, and every later setting then silently did nothing.
+- Safe mode visibility (implemented on `experiments`, build `OITI-exp-2026-10-20-a`, **untested on-device**): every OITI settings page shows a banner with the reason and a **Clear Safe Mode & Respring** button, and a respring started from OITI's own settings is not counted by the loop guard (marker file `OITIRespringIntent.plist`). Background: a tester tripped the guard in 100 s by respringing while changing settings, and every later setting then silently did nothing. The trip rule (5 launches in 120 s, 45 s stable window) is unchanged on purpose. Resprings from `sbreload`, other tweaks or OITS's settings still count. Test steps: `COMMANDS.md`, section 7.
 
 ## Starting a new chat
 
