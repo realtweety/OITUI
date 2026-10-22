@@ -10,7 +10,7 @@
 - **Remaining notification work:** Verify Compact/Wide and real notification paths broadly, confirm timeout behavior over longer intervals, test on real Dynamic Island hardware and other iOS 16 builds. Keep the current card layout unless owner asks to revisit it. Progress bars are a possible later addition.
 - **Hello Startup Animation (0.2.0).** The off-by-default toggle waits until the device is unlocked and SpringBoard is active on the Home Screen, checks a persistent five-minute cooldown, and shows an expanded Island element. The owner confirmed the Home Screen gate, video sizing, cooldown, uninstall, toggle and interruption behavior on-device. The AVPlayer-backed view plays the supplied SVG-derived clip once without audio and removes the Island element when playback ends or fails. While it plays, charging activity is kept registered but placed behind the startup animation; calls and other Island activity take priority. The bundled H.264 clip is 1280×720, six seconds, white on black.
 - **Volume slider:** deferred after an initial implementation was removed because it did not work and did not seem broadly useful.
-- **Polish list** (owner chose to defer): live color, opacity and banner offset (add a relayout request like the size sliders); banner position at extreme Island sizes; make the X/Y scale relative to Apple's own size (screen width / canvas width, new keys, no migration); maybe lower the Island Height slider minimum (around 0.6 is where 22 pt artwork stops fitting, untested).
+- **Polish list** (owner chose to defer): live color, opacity and banner offset (done on `experiments`, build `OITI-exp-2026-10-21-a`, untested on-device); banner position at extreme Island sizes; make the X/Y scale relative to Apple's own size (done on `experiments`, build `OITI-exp-2026-10-21-b`: new keys `RelativeScaleX` / `RelativeScaleY`, no migration, untested on-device); maybe lower the Island Height slider minimum (around 0.6 is where 22 pt artwork stops fitting, untested).
 - **Per-app exclude list for Island Notifications.** Deferred until someone asks for it (keep Phone or Timer on the stock banner, for example).
 - **OITS** is parked: revert or adapt to the `_UIStatusBarProvider_DynamicSplit` layout class, rebuild the lost diagnostic fixes, restore the scoping guard.
 
@@ -21,9 +21,9 @@
   (`OITIDeviceProfiles.h`); real modules make sense once the content-injection research is done.
 - **Device awareness**: done as a table in `OITIDeviceProfiles.h` (17 models, each marked verified or estimated).
   Remaining: entries for iPhone 8 / 8 Plus (needs on-device measurement) and more devices.
-- **Apple Mode vs Enhanced Mode**: simple toggle, conservative default, low risk.
+- **Apple Mode vs Enhanced Mode**: done on `experiments` (build `OITI-exp-2026-10-21-b`, untested on-device) as a single `appleMode` switch that forces every Island customization off and keeps Enable Dynamic Island, the built-in position and notification fixes, the Status Bar Layout setting and safe mode.
 - **Developer/debug overlay**: FPS, render time, active Island state, and other useful runtime diagnostics. Keep it focused on information that can actually be measured on-device.
-- **Crash recovery for an expanded Island state**: small, concrete, testable.
+- **Crash recovery for an expanded Island state**: done on `experiments` (build `OITI-exp-2026-10-21-c`, untested on-device) as a live-element breadcrumb file plus a 120 s window at the next launch in which Island notifications and the startup animation stay off. Nothing about the expanded Island is persisted across a SpringBoard restart, so the real risk was a re-delivered notification rebuilding the element that crashed.
 - **Island Stacks / queue**: multiple things (music, timer, download) don't fight for the
   same space -- swipeable or queued instead of clobbering each other. Needs a content mechanism first (Step 3 research).
 - **Context awareness**: Island content adapts to foreground app (Maps -> nav controls,

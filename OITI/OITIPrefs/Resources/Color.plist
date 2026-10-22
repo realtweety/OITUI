@@ -28,7 +28,7 @@
         <key>cell</key>
         <string>PSSliderCell</string>
         <key>label</key>
-        <string>Blue</string>
+        <string>Opacity</string>
         <key>default</key>
         <real>1.0</real>
         <key>min</key>

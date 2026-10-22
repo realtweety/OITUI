@@ -163,7 +163,9 @@ Status Bar Layout (key `StatusBarLayout`, picker at the bottom of the settings p
 - `off`: never change UIKit's answer.
 - a `_UIStatusBarVisualProvider_*` class name: return that class.
 
-Native providers read from a device's own log (Island off): `iPhone14,4` (13 mini) uses `_UIStatusBarVisualProvider_Split1080_Wide`. Other devices use a guess by native pixel width until a log is available.
+The native provider `auto` returns comes from, in order: the record the phone wrote about itself (`/var/mobile/Library/Preferences/OITINativeProvider.plist`), a table entry read from a device's own log (Island off; `iPhone14,4`, the 13 mini, uses `_UIStatusBarVisualProvider_Split1080_Wide`), and a guess by native pixel width. The decision text in the `CHOICE` line says which one answered.
+
+`LEARN` lines (level 0, untested, build `OITI-exp-2026-10-20-b`): the first time a launch with the Island off builds a status bar, OITI records the provider UIKit chose. It only records when the answer is certainly native: the Island was off when SpringBoard started and still is, the phone is a notch iPhone in the device table, UIKit chose a real provider (not nil, not Fallback), the MobileGestalt cache does not hold the spoofed 2556 and no `UIStatusBarVisualProviderClassName` override is set. One attempt per launch; an identical record is not rewritten; a record for another machine identifier is ignored. The level 1 boot report adds a `NATIVE` line with the provider `auto` would use and where it came from.
 
 Steps and commands: `COMMANDS.md`, section 12.
 
@@ -177,6 +179,7 @@ Level 0:
 - `ELEMENT promotion guard installed ...`, or `... NOT installed` with the reason.
 - Failures: `no SAUISystemApertureManager seen yet`, `missing class`, `creation failed`, `exception while creating/registering the element`, `could not dismiss the element`, `could not open <bundle>`, `GESTURES: no host view found`, `element creation is off until the next respring`.
 - `ELEMENT GUARD caught <exception>: <reason>` with the first ten stack symbols, `GUARD element` and `GUARD parts` lines for every registered element, and `dismissed element ...`. This is the promotion guard doing its job: an exception inside `-[SAUISystemApertureManager _reevaluatePromotedElements]` while one of OITI's elements was live. After 5 catches in one SpringBoard session, element creation stays off until a respring.
+- `ELEMENT RECOVERY ...` (level 0, untested, build `OITI-exp-2026-10-21-c`): cross-launch crash recovery. While any OITI Island element (a notice or the startup Hello) is live, `/var/mobile/Library/Preferences/OITILiveElement.plist` exists (time, pid, reason, build); it is written just before the element is registered and deleted when the last one leaves, or when the promotion guard catches an exception. At launch, `RECOVERY the previous SpringBoard ended while an OITI Island element was live (...)` means the file was left behind: a crash, or a respring from somewhere other than OITI's own settings. That launch keeps Island notifications and the startup animation off for 120 s; each suppressed notice logs `RECOVERY: notification is not shown as an Island element (N s left); the stock banner is used`, and `RECOVERY window is over` marks the end. `RECOVERY not needed: SpringBoard was restarted from OITI's settings ...` means the respring was requested from OITI's Respring button (the loop-guard intent marker), so nothing is suppressed. Nothing else in OITI is affected.
 - `ELEMENT STUB identifier was sent -<selector>`: Apple asked OITI's identifier object for something other than `elementIdentifier` / `clientIdentifier`. Once per selector per launch.
 
 Level 1 adds:

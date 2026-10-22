@@ -76,10 +76,28 @@
 //      returned, and the class each live status bar ended up with. Status Bar Layout (key StatusBarLayout) decides
 //      whether the choice is replaced.
 //
-// X/Y SCALE (UNTESTED): the single "scale" value is replaced by separate width (scaleX) and height (scaleY) scales
-// applied as one non-uniform transform on the Island window. Contents stretch with it. An existing single "scale"
-// value is used for both axes until scaleX/scaleY are set. Changing any setting now asks the Island window to lay out
-// again, so changes show up immediately instead of at the next layout Apple happens to do.
+// ELEMENT CRASH RECOVERY (UNTESTED): while any of OITI's Island elements (a notice or the startup Hello) is live, the
+// file OITILiveElement.plist exists; it is written just before the element is registered and deleted when the last one
+// leaves. A file found at launch means the previous SpringBoard ended while an OITI element was live (a crash, or a
+// respring from somewhere other than OITI's own settings). That launch then keeps Island notifications and the
+// startup animation off for 120 s (the stock banner is used), which is when a re-delivered notification would
+// otherwise rebuild the element that crashed. The rest of OITI keeps working. This ends such a loop after one crash
+// instead of the five that trip safe mode, and complements the in-process promotion guard.
+//
+// APPLE MODE (UNTESTED): key appleMode (OITI main page). While on, every Island customization behaves as if it were
+// off and the Island is the stock iOS one: custom position, custom scale, Island size, color, opacity, outline hiding,
+// hide when not in use, custom notification position, Island Notifications (and hiding the banner for them) and the
+// startup animation. Kept as the user set them: Enable Dynamic Island, Fix Island Position, Fix Notification
+// Positioning, the Status Bar Layout fix, safe mode and diagnostics. The stored settings are never changed, so
+// turning Apple Mode off brings every customization back as it was. Applied in one place (preferencesChanged).
+//
+// X/Y SCALE (UNTESTED): separate width and height scales applied as one non-uniform transform on the Island window.
+// Contents stretch with it. They are RELATIVE to Apple's own size: 1.0 is the stock Island. Apple's window is a canvas
+// stretched to the screen width by its own uniform transform (1.15 on an iPhone 8 Plus), and setting a transform
+// replaces that one, so the applied transform is Apple's canvas scale times the slider value. Prefs keys
+// RelativeScaleX and RelativeScaleY (clamped like the old ones). The earlier absolute keys scale, scaleX and scaleY
+// are no longer read and are not migrated. Changing any setting asks the Island window to lay out again, so changes
+// show up immediately instead of at the next layout Apple happens to do.
 //
 // ISLAND SIZE (UNTESTED as a settings feature; confirmed by a dump experiment): Apple builds the Island from
 // SBUISystemApertureLayoutMetrics. Its sensorRegionSize getter is the root input: _inertSize, minimumCompactSize, the
@@ -125,7 +143,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-20-a";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-21-c";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -147,6 +165,11 @@ static NSString * const kOITISafeModePath = @"/var/mobile/Library/Preferences/OI
 // kOITIRespringIntentMaxAge seconds it is ignored.
 static NSString * const kOITIRespringIntentPath = @"/var/mobile/Library/Preferences/OITIRespringIntent.plist";
 static const NSTimeInterval kOITIRespringIntentMaxAge = 30.0;
+// Exists while one of OITI's Island elements is live (see ELEMENT CRASH RECOVERY above).
+static NSString * const kOITILiveElementPath = @"/var/mobile/Library/Preferences/OITILiveElement.plist";
+static const NSTimeInterval kOITIElementRecoveryWindow = 120.0;
+static CFAbsoluteTime sElementRecoveryUntil = 0;     // while in the future, no Island element is created
+static BOOL sLaunchWasRequestedRespring = NO;        // this launch followed a respring asked for in OITI's settings
 static NSString * const kOITIGestaltBackupBreadcrumbPath = @"/var/mobile/Library/Preferences/OITIGestaltBackup.plist";
 static NSString * const kOITIGestaltPlistPath = @"/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/com.apple.MobileGestalt.plist";
 static NSString * const kOITIGestaltCacheExtraKey = @"CacheExtra";
@@ -164,9 +187,8 @@ static CGFloat green = 0.0;
 static CGFloat blue = 0.0;
 static CGFloat alpha = 1.0;
 
-static CGFloat scale = 1.0;    // legacy single scale; only a fallback for scaleX/scaleY now
-static CGFloat scaleX = 1.0;
-static CGFloat scaleY = 1.0;
+static CGFloat scaleX = 1.0;   // RelativeScaleX: 1.0 = Apple's own size
+static CGFloat scaleY = 1.0;   // RelativeScaleY
 
 // Island size multipliers applied to sensorRegionSize from SBUISystemApertureLayoutMetrics.
 // 1.0 = Apple's own value (no change). See the header comment.
@@ -193,6 +215,7 @@ static BOOL lineDisabled;
 static BOOL islandNotificationsEnabled;       // OITI > Notifications: show notifications as an Island element (default NO)
 static BOOL islandNotificationsHideBanner;    // also fade the stock banner window out while our element is up (default NO)
 static BOOL sIslandNotificationStackEnabled = YES; // Experimental multi-notification stack (default YES for existing behavior)
+static BOOL sAppleMode;                        // appleMode: every customization below is forced off while YES
 static BOOL islandStartupHelloEnabled;        // OITI > Startup Animation prototype (default NO)
 static BOOL sStartupHelloObservationWindowOpen;
 static BOOL sStartupHelloActivitySeen;
@@ -210,6 +233,11 @@ static BOOL sGuardRestoreGestalt = NO;
 static const void *kOITIAppliedScaleKey = &kOITIAppliedScaleKey;
 static const void *kOITIHiddenByUsKey = &kOITIHiddenByUsKey;
 static const void *kOITIColorAppliedKey = &kOITIColorAppliedKey;
+// Island transparency and outline hiding: the alpha OITI last set on a view / a flag that OITI hid it, so a changed
+// or switched-off setting applies live without fighting Apple's own changes to the same view.
+static const void *kOITITransparencyAppliedKey = &kOITITransparencyAppliedKey;
+static const void *kOITILineHiddenKey = &kOITILineHiddenKey;
+static const void *kOITIPassThroughTouchedKey = &kOITIPassThroughTouchedKey;
 
 static OITLogger *sLog;
 // Weak references: the research hooks observe Apple's manager but must not keep it alive.
@@ -312,6 +340,20 @@ static CGFloat OITISafeScaleValue(CGFloat value) {
     return value;
 }
 
+// Apple's own scale for the Island window: its canvas (360 x 640 on the 8 Plus) is stretched to the screen width by a
+// uniform transform (1.15 there). Setting a transform replaces Apple's, so a scale relative to stock multiplies this
+// back in. The shorter sides are compared so it holds in either orientation. Falls back to 1.0 if the numbers are
+// not sane.
+static CGFloat OITIAppleCanvasScale(UIView *window) {
+    CGSize canvas = window.bounds.size;
+    CGSize screen = [UIScreen mainScreen].bounds.size;
+    CGFloat canvasSide = MIN(canvas.width, canvas.height);
+    CGFloat screenSide = MIN(screen.width, screen.height);
+    if (canvasSide < 1.0 || screenSide < 1.0) return 1.0;
+    CGFloat factor = screenSide / canvasSide;
+    return (isfinite(factor) && factor >= 0.5 && factor <= 3.0) ? factor : 1.0;
+}
+
 // Resolved once. NULL means "this device has no built-in offsets" (for example an iPhone 8 / 8 Plus).
 static const OITIDeviceProfile *OITICurrentProfile(void) {
     static const OITIDeviceProfile *profile;
@@ -330,10 +372,10 @@ static NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
     return @{
         @"fixEnabled": @(fixEnabled), @"islandEnabled": @(islandEnabled), @"posEnabled": @(posEnabled),
         @"hideEnabled": @(hideEnabled), @"notificationFix": @(notificationFix), @"notEnabled": @(notEnabled),
-        @"colorEnabled": @(colorEnabled), @"transEnabled": @(transEnabled), @"scaleEnabled": @(scaleEnabled),
+        @"colorEnabled": @(colorEnabled), @"transEnabled": @(transEnabled), @"scaleEnabled": @(scaleEnabled), @"appleMode": @(sAppleMode),
         @"lineDisabled": @(lineDisabled),
         @"xPos": @(xPos), @"yPos": @(yPos), @"xNot": @(xNot), @"yNot": @(yNot),
-        @"red": @(red), @"green": @(green), @"blue": @(blue), @"alpha": @(alpha), @"scale": @(scale), @"scaleX": @(scaleX), @"scaleY": @(scaleY),
+        @"red": @(red), @"green": @(green), @"blue": @(blue), @"alpha": @(alpha), @"scaleX": @(scaleX), @"scaleY": @(scaleY),
         @"MetricsSensorW": @(sMetricsSensorX), @"MetricsSensorH": @(sMetricsSensorY),
         @"islandNotificationsEnabled": @(islandNotificationsEnabled),
         @"islandNotificationsHideBanner": @(islandNotificationsHideBanner),
@@ -750,6 +792,9 @@ static void OITIDumpLayoutMetrics(void) {
 // class that exists on the device, any UIStatusBarVisualProviderClassName override in com.apple.UIKit and the Status Bar
 // Layout setting. The class UIKit actually chose is logged by the CHOICE and LIVE lines further down.
 
+static NSString *OITINativeProviderNameForScreen(UIScreen *screen, NSString **source);
+static NSString *OITILearnedNativeProviderName(void);
+
 static void OITIRunStatusBarDiagnostic(NSString *reason) {
     if (!sLog.enabled || sLog.level < 1) return;
     @try {
@@ -770,6 +815,11 @@ static void OITIRunStatusBarDiagnostic(NSString *reason) {
         } else {
             [sLog logTag:@"STATUSBAR" format:@"TABLE no entry for %@", machine];
         }
+
+        NSString *nativeSource = nil;
+        NSString *nativeName = profile ? OITINativeProviderNameForScreen(screen, &nativeSource) : nil;
+        [sLog logTag:@"STATUSBAR" format:@"NATIVE provider auto would use=%@ (from %@) | learned record=%@",
+         nativeName ?: @"(none: device not in the table)", nativeSource ?: @"-", OITILearnedNativeProviderName() ?: @"(none)"];
 
         id overrideValue = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("UIStatusBarVisualProviderClassName"),
                                                                   CFSTR("com.apple.UIKit")));
@@ -954,6 +1004,7 @@ static BOOL OITIEvaluateLoopGuard(void) {
         NSTimeInterval intentAge = [intentTime isKindOfClass:[NSNumber class]] ? now - [intentTime doubleValue] : -1;
         if (intentAge >= 0 && intentAge < kOITIRespringIntentMaxAge) {
             [@{ @"launches": @[] } writeToFile:kOITIBootLogPath atomically:YES];
+            sLaunchWasRequestedRespring = YES;
             [sLog logTag:@"GUARD" format:@"respring requested from OITI settings %.0f s ago: launch not counted, history cleared",
              intentAge];
             return NO;
@@ -1098,6 +1149,10 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 //   <class> a _UIStatusBarVisualProvider_* class name: return that class while the Island is on (for trying layouts).
 // A wrong class can crash SpringBoard, which the respring-loop guard turns into safe mode (hooks off) after 5 launches.
 // The provider is chosen when a status bar is built, so a changed setting needs a respring.
+//
+// The native provider "auto" returns comes from, in order: the record this phone wrote about itself (below), the
+// table of models read from real logs, and a guess by native pixel width. The record is written the first time a
+// launch with the Island off builds a status bar (UNTESTED).
 
 @interface _UIStatusBarVisualProvider_iOS : NSObject
 @end
@@ -1118,26 +1173,67 @@ static NSMutableSet<NSString *> *sLoggedProviderChoices;
 static NSHashTable *sLoggedStatusBars;
 static NSUInteger sLiveStatusBarLogCount = 0;
 
+// The provider UIKit chose natively on this phone (Island off), written by OITIMaybeLearnNativeProvider and read back
+// by "auto". Flat plist next to the other OITI state files. Not removed on uninstall.
+static NSString * const kOITINativeProviderPath = @"/var/mobile/Library/Preferences/OITINativeProvider.plist";
+static BOOL sIslandEnabledAtLaunch = NO;          // set in %ctor from the first preferences load
+static BOOL sNativeProviderLearnAttempted = NO;   // one attempt per launch
+static BOOL sLearnedNativeProviderLoaded = NO;
+static NSString *sLearnedNativeProvider = nil;
+
 static NSInteger OITINativePixelWidth(UIScreen *screen) {
     CGSize pixels = screen.nativeBounds.size;
     return (NSInteger)llround(MIN(pixels.width, pixels.height));
 }
 
-// The provider UIKit uses natively (Island off) for a device. A model listed here was read from that device's own
-// log: "CHOICE UIKit chose ..." with islandEnabled=0. Other devices fall back to a guess by native pixel width, using
-// the names in the STATUSBAR PROVIDER dump; they are estimates until someone reports a log.
-static NSString *OITINativeProviderNameForScreen(UIScreen *screen) {
-    NSString *machine = [OITDeviceInfo machineIdentifier];
-    if ([machine isEqualToString:@"iPhone14,4"]) return @"_UIStatusBarVisualProvider_Split1080_Wide";  // iPhone 13 mini
-    switch (OITINativePixelWidth(screen)) {
-        case 828:  return @"_UIStatusBarVisualProvider_Split828";
-        case 1080: return @"_UIStatusBarVisualProvider_Split1080";
-        case 1125: return @"_UIStatusBarVisualProvider_Split1125";
-        case 1170: return @"_UIStatusBarVisualProvider_Split1170";
-        case 1242: return @"_UIStatusBarVisualProvider_Split1242";
-        case 1284: return @"_UIStatusBarVisualProvider_Split1284";
-        default:   return nil;
+// The record this phone wrote about itself, or nil. Read once per launch and kept. It is only trusted for the same
+// machine identifier (a restored backup from another phone is ignored) and only if it names a real provider class
+// name (never Fallback).
+static NSString *OITILearnedNativeProviderName(void) {
+    @synchronized (kOITINativeProviderPath) {
+        if (!sLearnedNativeProviderLoaded) {
+            sLearnedNativeProviderLoaded = YES;
+            NSDictionary *record = [NSDictionary dictionaryWithContentsOfFile:kOITINativeProviderPath];
+            id name = record[@"provider"];
+            id machine = record[@"machine"];
+            if ([name isKindOfClass:[NSString class]] && [machine isKindOfClass:[NSString class]] &&
+                [machine isEqualToString:[OITDeviceInfo machineIdentifier]] &&
+                [name hasPrefix:kOITIProviderPrefix] && ![name isEqualToString:kOITIFallbackProviderName]) {
+                sLearnedNativeProvider = name;
+            }
+        }
+        return sLearnedNativeProvider;
     }
+}
+
+// The provider UIKit uses natively (Island off) for a device. Order: the record this phone wrote (learned), then a
+// model read from that device's own log ("CHOICE UIKit chose ..." with islandEnabled=0; table), then a guess by
+// native pixel width using the names in the STATUSBAR PROVIDER dump (width guess, an estimate until someone reports a
+// log). *source says which one answered, nil when none did.
+static NSString *OITINativeProviderNameForScreen(UIScreen *screen, NSString **source) {
+    NSString *name = nil;
+    NSString *from = nil;
+    NSString *learned = OITILearnedNativeProviderName();
+    if (learned) {
+        name = learned;
+        from = @"learned record";
+    } else if ([[OITDeviceInfo machineIdentifier] isEqualToString:@"iPhone14,4"]) {
+        name = @"_UIStatusBarVisualProvider_Split1080_Wide";   // iPhone 13 mini
+        from = @"table";
+    } else {
+        switch (OITINativePixelWidth(screen)) {
+            case 828:  name = @"_UIStatusBarVisualProvider_Split828"; break;
+            case 1080: name = @"_UIStatusBarVisualProvider_Split1080"; break;
+            case 1125: name = @"_UIStatusBarVisualProvider_Split1125"; break;
+            case 1170: name = @"_UIStatusBarVisualProvider_Split1170"; break;
+            case 1242: name = @"_UIStatusBarVisualProvider_Split1242"; break;
+            case 1284: name = @"_UIStatusBarVisualProvider_Split1284"; break;
+            default: break;
+        }
+        if (name) from = @"width guess";
+    }
+    if (source) *source = from;
+    return name;
 }
 
 // Only classes named _UIStatusBarVisualProvider_* are accepted, so a typo cannot return an unrelated class.
@@ -1151,22 +1247,99 @@ static NSString *OITIStatusBarLayoutSetting(void) {
     return layout.length ? layout : kOITIStatusBarLayoutAuto;
 }
 
+// Writes the provider UIKit chose natively on this phone, so "auto" does not depend on a table built from other
+// people's logs. It only runs when UIKit's answer is certainly native: the Island was off when SpringBoard started
+// (the MobileGestalt value is read once per process, so a phone that started with the spoof stays spoofed until the
+// next respring) and is still off, the phone is a notch iPhone in the table, and UIKit chose a real provider (not
+// nil, not Fallback). The file checks run off the main thread: the cache must not hold the spoofed value and no
+// UIStatusBarVisualProviderClassName override may be set, since either would make UIKit's answer not native.
+// One attempt per launch, and nothing is rewritten when the record already says the same.
+static void OITIMaybeLearnNativeProvider(Class chosen, UIScreen *screen) {
+    if (sNativeProviderLearnAttempted) return;
+    if (islandEnabled || sIslandEnabledAtLaunch) return;
+    if (screen != [UIScreen mainScreen]) return;
+    sNativeProviderLearnAttempted = YES;
+    if (!OITICurrentProfile()) {
+        [sLog logTag:@"STATUSBAR" format:@"LEARN skipped: %@ is not in the device table, so there is no status bar fix to feed and nothing is recorded",
+         [OITDeviceInfo machineIdentifier]];
+        return;
+    }
+
+    NSString *name = chosen ? NSStringFromClass(chosen) : nil;
+    NSString *machine = [OITDeviceInfo machineIdentifier];
+    NSString *bounds = NSStringFromCGRect(screen.nativeBounds);
+    if (!name || ![name hasPrefix:kOITIProviderPrefix] || [name isEqualToString:kOITIFallbackProviderName]) {
+        [sLog logTag:@"STATUSBAR" format:@"LEARN skipped: UIKit chose %@ with the Island off, which is not a usable native provider", name ?: @"nil"];
+        return;
+    }
+
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        @try {
+            id overrideValue = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("UIStatusBarVisualProviderClassName"),
+                                                                      CFSTR("com.apple.UIKit")));
+            if (overrideValue) {
+                [sLog logTag:@"STATUSBAR" format:@"LEARN skipped: UIStatusBarVisualProviderClassName override is set (%@), so UIKit's answer may not be native", overrideValue];
+                return;
+            }
+            NSDictionary *cache = [NSDictionary dictionaryWithContentsOfFile:kOITIGestaltPlistPath];
+            if (!cache) {
+                [sLog logTag:@"STATUSBAR" format:@"LEARN skipped: the MobileGestalt cache is not readable, cannot confirm the spoof is absent"];
+                return;
+            }
+            id extra = cache[kOITIGestaltCacheExtraKey];
+            id nested = [extra isKindOfClass:[NSDictionary class]] ? extra[kOITIGestaltNestedKey] : nil;
+            id subtype = [nested isKindOfClass:[NSDictionary class]] ? nested[kOITIGestaltLeafKey] : nil;
+            if ([subtype isKindOfClass:[NSNumber class]] && [subtype integerValue] == 2556 && !OITIMachineHasNativeIsland(machine)) {
+                [sLog logTag:@"STATUSBAR" format:@"LEARN skipped: the cache holds the spoofed ArtworkDeviceSubType 2556, so UIKit's answer is not native"];
+                return;
+            }
+
+            NSDictionary *existing = [NSDictionary dictionaryWithContentsOfFile:kOITINativeProviderPath];
+            if ([existing[@"machine"] isEqual:machine] && [existing[@"provider"] isEqual:name]) {
+                [sLog logTag:@"STATUSBAR" format:@"LEARN record already holds %@ for %@", name, machine];
+                return;
+            }
+            NSDictionary *record = @{
+                @"machine": machine ?: @"",
+                @"provider": name,
+                @"nativeBounds": bounds ?: @"",
+                @"os": [NSProcessInfo processInfo].operatingSystemVersionString ?: @"",
+                @"build": kOITIBuildTag,
+                @"time": @([[NSDate date] timeIntervalSince1970]),
+            };
+            BOOL written = [record writeToFile:kOITINativeProviderPath atomically:YES];
+            [sLog logTag:@"STATUSBAR" format:@"LEARN %@: native provider for %@ is %@ (nativeBounds=%@, previous record=%@)",
+             written ? @"recorded" : @"WRITE FAILED", machine, name, bounds, existing[@"provider"] ?: @"(none)"];
+            if (written) {
+                @synchronized (kOITINativeProviderPath) {
+                    sLearnedNativeProvider = name;
+                    sLearnedNativeProviderLoaded = YES;
+                }
+            }
+        } @catch (NSException *exception) {
+            [sLog logTag:@"STATUSBAR" format:@"LEARN ERROR exception %@: %@", exception.name, exception.reason];
+        }
+    });
+}
+
 static Class OITIStatusBarProviderDecision(Class chosen, id screenArgument, id info) {
     Class result = chosen;
     @try {
         UIScreen *screen = [screenArgument isKindOfClass:[UIScreen class]] ? (UIScreen *)screenArgument : [UIScreen mainScreen];
+        OITIMaybeLearnNativeProvider(chosen, screen);
         NSString *layout = OITIStatusBarLayoutSetting();
         NSString *chosenName = chosen ? NSStringFromClass(chosen) : @"nil";
         NSInteger width = OITINativePixelWidth(screen);
         Class replacement = Nil;
         NSString *decision = nil;
+        NSString *nativeSource = nil;
 
         if (!islandEnabled) {
             decision = @"idle: Island is off";
         } else if ([layout isEqualToString:kOITIStatusBarLayoutOff]) {
             decision = @"idle: Status Bar Layout is Off";
         } else if ([layout isEqualToString:kOITIStatusBarLayoutAuto]) {
-            NSString *nativeName = OITICurrentProfile() ? OITINativeProviderNameForScreen(screen) : nil;
+            NSString *nativeName = OITICurrentProfile() ? OITINativeProviderNameForScreen(screen, &nativeSource) : nil;
             Class native = nativeName ? OITIProviderClassNamed(nativeName) : Nil;
             if (!native) {
                 decision = @"auto idle: no native provider known for this device";
@@ -1191,6 +1364,7 @@ static Class OITIStatusBarProviderDecision(Class chosen, id screenArgument, id i
             }
         }
 
+        if (nativeSource) decision = [decision stringByAppendingFormat:@" [native provider from %@]", nativeSource];
         if (replacement) result = replacement;
 
         NSString *replacementName = replacement ? NSStringFromClass(replacement) : @"-";
@@ -1482,6 +1656,54 @@ static void OITISetNoticeLayout(NSDictionary *item, NSInteger style, BOOL isNewe
     }
 }
 
+// ---- Element crash recovery ------------------------------------------------------------------
+// Written (synchronously, so it survives an immediate crash) when the first OITI element goes live, deleted when the
+// last one leaves. Found at launch it means the previous SpringBoard ended while an element was live.
+static void OITIWriteElementBreadcrumb(NSString *reason) {
+    NSDictionary *crumb = @{ @"time": @([[NSDate date] timeIntervalSince1970]),
+                             @"pid": @(getpid()),
+                             @"reason": reason ?: @"",
+                             @"build": kOITIBuildTag };
+    if (![crumb writeToFile:kOITILiveElementPath atomically:YES]) {
+        [sLog logTag:@"ELEMENT" format:@"RECOVERY breadcrumb could not be written"];
+    }
+}
+
+static void OITIClearElementBreadcrumb(void) {
+    [[NSFileManager defaultManager] removeItemAtPath:kOITILiveElementPath error:nil];
+}
+
+// Called once at launch, before the hooks are installed. A breadcrumb left by a SpringBoard that ended while an OITI
+// element was live starts the recovery window, unless that launch was a respring requested from OITI's own settings
+// (the previous process was healthy then).
+static void OITIEvaluateElementBreadcrumb(void) {
+    NSDictionary *crumb = [NSDictionary dictionaryWithContentsOfFile:kOITILiveElementPath];
+    if (!crumb) return;
+    OITIClearElementBreadcrumb();
+    id when = crumb[@"time"];
+    NSTimeInterval age = [when isKindOfClass:[NSNumber class]] ? [[NSDate date] timeIntervalSince1970] - [when doubleValue] : -1;
+    if (sLaunchWasRequestedRespring) {
+        [sLog logTag:@"ELEMENT" format:@"RECOVERY not needed: SpringBoard was restarted from OITI's settings while an element was live (%@)", crumb[@"reason"]];
+        return;
+    }
+    sElementRecoveryUntil = CFAbsoluteTimeGetCurrent() + kOITIElementRecoveryWindow;
+    [sLog logTag:@"ELEMENT" format:@"RECOVERY the previous SpringBoard ended while an OITI Island element was live (%@, %.0f s before this launch, build %@): Island notifications and the startup animation stay off for %.0f s and the stock banner is used",
+     crumb[@"reason"], age, crumb[@"build"], kOITIElementRecoveryWindow];
+}
+
+// True while the recovery window is open. Main thread only.
+static BOOL OITIElementRecoveryActive(NSString *reason) {
+    if (sElementRecoveryUntil <= 0) return NO;
+    CFAbsoluteTime left = sElementRecoveryUntil - CFAbsoluteTimeGetCurrent();
+    if (left <= 0) {
+        sElementRecoveryUntil = 0;
+        [sLog logTag:@"ELEMENT" format:@"RECOVERY window is over: Island elements are allowed again"];
+        return NO;
+    }
+    [sLog logTag:@"ELEMENT" format:@"RECOVERY: %@ is not shown as an Island element (%.0f s left); the stock banner is used", reason, left];
+    return YES;
+}
+
 // Expire or swipe away one item. If the visible newest item leaves, promote the newest survivor.
 static void OITIRemoveNoticeItem(NSDictionary *item, NSString *reason) {
     NSUInteger index = [sIslandNoticeItems indexOfObjectIdenticalTo:item];
@@ -1503,7 +1725,10 @@ static void OITIRemoveNoticeItem(NSDictionary *item, NSString *reason) {
     OITIRefreshNewestNoticeComposite();
     [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK removed %@ reason=%@ remaining=%lu",
      OITIKVCObject(item[@"element"], @"elementIdentifier"), reason, (unsigned long)sIslandNoticeItems.count];
-    if (sIslandNoticeItems.count == 0) OITIRestoreCorners();
+    if (sIslandNoticeItems.count == 0) {
+        OITIRestoreCorners();
+        OITIClearElementBreadcrumb();
+    }
 }
 
 // Give a notice a fresh lifetime when it is demoted from the expanded slot to the compact list.
@@ -2180,6 +2405,7 @@ static void OITIDismissNoticeItem(NSDictionary *item) {
 // Creates one element from `info`, registers it and schedules its removal. Main thread only.
 static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSString *reason) {
     @synchronized ([NSNull null]) { [sTraceSeen removeAllObjects]; }
+    if (OITIElementRecoveryActive(reason)) return NO;
     if (sPoCDisabledAfterFailure) {
         [sLog logTag:@"ELEMENT" format:@"element creation is off until the next respring (the promotion guard caught %d exceptions)", sPoCFailureCount];
         return NO;
@@ -2288,6 +2514,7 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
             OITIRemoveNoticeItem(oldest, @"capacity");
         }
         [sIslandNoticeItems addObject:item];   // added BEFORE registering so the promotion guard knows an OITI element is live
+        if (sIslandNoticeItems.count == 1) OITIWriteElementBreadcrumb(reason);   // also before registering: registration is the risky call
         if (startupHello) sStartupHelloItem = item;
         OITIScheduleNoticeTimeout(item);
         OITIRefreshNewestNoticeComposite();
@@ -2660,6 +2887,7 @@ static void OITIInstallPromotionGuard(void) {
             NSArray<NSDictionary *> *items = [sIslandNoticeItems copy];
             [sIslandNoticeItems removeAllObjects];
             for (NSDictionary *item in items) OITIDismissNoticeItem(item);
+            OITIClearElementBreadcrumb();   // the exception was caught and the elements dismissed: SpringBoard is fine
         }
     });
     class_replaceMethod(managerClass, selector, replacement, encoding);
@@ -2893,7 +3121,9 @@ static void OITIInstallIslandNotificationHooks(void) {
     CGRect before = self.frame;
 
     if (scaleEnabled) {
-        CGAffineTransform wanted = CGAffineTransformMakeScale(OITISafeScaleValue(scaleX), OITISafeScaleValue(scaleY));
+        CGFloat appleScale = OITIAppleCanvasScale(self);
+        CGAffineTransform wanted = CGAffineTransformMakeScale(appleScale * OITISafeScaleValue(scaleX),
+                                                              appleScale * OITISafeScaleValue(scaleY));
         if (!CGAffineTransformEqualToTransform(self.transform, wanted)) self.transform = wanted;
         objc_setAssociatedObject(self, kOITIAppliedScaleKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     } else if (objc_getAssociatedObject(self, kOITIAppliedScaleKey)) {
@@ -2999,7 +3229,8 @@ static void OITIInstallIslandNotificationHooks(void) {
 - (void)layoutSubviews {
     %orig;
 
-    if (!transEnabled && !lineDisabled) return;
+    // An instance OITI changed earlier must still be visited when the setting is switched off, so it can be restored.
+    if (!transEnabled && !lineDisabled && !objc_getAssociatedObject(self, kOITIPassThroughTouchedKey)) return;
 
     // SBFTouchPassThroughView is used pervasively throughout SpringBoard (Dock, folders, notification banners,
     // home screen icons, etc.), and the subviews.count == 4 heuristic below is NOT specific enough on its own.
@@ -3020,22 +3251,46 @@ static void OITIInstallIslandNotificationHooks(void) {
         return;
     }
 
+    // Transparency. A view is OITI's to change when it is untouched (alpha 1.0, as before) or still carries the alpha
+    // OITI set earlier (so a new opacity applies live). If something else changed the alpha since, it is left alone.
+    UIView *targetSubview = self.subviews[2];
+    NSNumber *appliedAlpha = objc_getAssociatedObject(targetSubview, kOITITransparencyAppliedKey);
+    BOOL carriesOurAlpha = appliedAlpha && fabs(targetSubview.alpha - appliedAlpha.doubleValue) < 0.001;
     if (transEnabled) {
-        UIView *targetSubview = self.subviews[2];
-        if (targetSubview.alpha == 1.0 && targetSubview.userInteractionEnabled == 0) {
-            targetSubview.alpha = alpha;
-            OITLOGGER_LOG_RATED(sLog, 2, @"TOUCHPASS", @"touchpass.trans", 4,
-                                @"transparency applied alpha=%.2f to %@", alpha, NSStringFromClass([targetSubview class]));
+        BOOL untouched = targetSubview.alpha == 1.0 && targetSubview.userInteractionEnabled == 0;
+        if (untouched || carriesOurAlpha) {
+            if (fabs(targetSubview.alpha - alpha) > 0.001) {
+                targetSubview.alpha = alpha;
+                OITLOGGER_LOG_RATED(sLog, 2, @"TOUCHPASS", @"touchpass.trans", 4,
+                                    @"transparency applied alpha=%.2f to %@", alpha, NSStringFromClass([targetSubview class]));
+            }
+            objc_setAssociatedObject(targetSubview, kOITITransparencyAppliedKey, @(alpha), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
+    } else if (appliedAlpha) {
+        if (carriesOurAlpha) targetSubview.alpha = 1.0;
+        objc_setAssociatedObject(targetSubview, kOITITransparencyAppliedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+
+    // Outline.
+    UIView *lineView = self.subviews[1];
+    BOOL lineIsOurs = objc_getAssociatedObject(lineView, kOITILineHiddenKey) != nil;
     if (lineDisabled) {
-        UIView *lineView = self.subviews[1];
-        if (lineView.alpha == 1.0 && lineView.userInteractionEnabled == 0) {
-            lineView.hidden = YES;
-            OITLOGGER_LOG_RATED(sLog, 2, @"TOUCHPASS", @"touchpass.line", 4,
-                                @"line hidden: %@", NSStringFromClass([lineView class]));
+        if (lineIsOurs || (lineView.alpha == 1.0 && lineView.userInteractionEnabled == 0)) {
+            if (!lineView.hidden) {
+                lineView.hidden = YES;
+                OITLOGGER_LOG_RATED(sLog, 2, @"TOUCHPASS", @"touchpass.line", 4,
+                                    @"line hidden: %@", NSStringFromClass([lineView class]));
+            }
+            objc_setAssociatedObject(lineView, kOITILineHiddenKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
+    } else if (lineIsOurs) {
+        lineView.hidden = NO;
+        objc_setAssociatedObject(lineView, kOITILineHiddenKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+
+    BOOL touched = objc_getAssociatedObject(targetSubview, kOITITransparencyAppliedKey) != nil ||
+                   objc_getAssociatedObject(lineView, kOITILineHiddenKey) != nil;
+    objc_setAssociatedObject(self, kOITIPassThroughTouchedKey, touched ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 %end
@@ -3111,10 +3366,34 @@ static void OITIInstallIslandNotificationHooks(void) {
 
 // Asks the Island windows to lay out again so new settings (scale, position) apply immediately. The layoutSubviews
 // hook does the actual work. Harmless when no window has been seen yet (or in safe mode, when no hook exists).
+//
+// The custom color, transparency and outline settings are applied in the layoutSubviews of two inner view classes, and
+// setNeedsLayout on a window does not reach them, so those views are marked too. The custom banner position lives in
+// the banner window's frame, which is set again here. Turning the banner position OFF only takes effect the next time
+// the system sets the banner frame (the next banner), because OITI does not know the original frame.
+static void OITIMarkOverrideViewsForLayout(UIView *view, NSUInteger depth) {
+    static Class contentClass;
+    static Class passThroughClass;
+    if (!contentClass) contentClass = NSClassFromString(@"_SBSystemApertureContainerViewContentView");
+    if (!passThroughClass) passThroughClass = NSClassFromString(@"SBFTouchPassThroughView");
+    if ((contentClass && [view isKindOfClass:contentClass]) || (passThroughClass && [view isKindOfClass:passThroughClass])) {
+        [view setNeedsLayout];
+    }
+    if (depth >= 12) return;
+    for (UIView *subview in view.subviews) OITIMarkOverrideViewsForLayout(subview, depth + 1);
+}
+
 static void OITIRefreshIslandLayout(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         for (UIView *window in sLiveApertureWindows.allObjects) {
             [window setNeedsLayout];
+            OITIMarkOverrideViewsForLayout(window, 0);
+        }
+        if (notificationFix || notEnabled) {
+            for (UIView *banner in sBannerWindows.allObjects) {
+                CGRect current = banner.frame;
+                banner.frame = current;   // the setFrame: hook applies the override
+            }
         }
     });
 }
@@ -3143,6 +3422,28 @@ static void preferencesChanged(void) {
     islandNotificationsHideBanner = [sOITIPreferences boolForKey:@"islandNotificationsHideBanner" default:NO];
     sIslandNotificationStackEnabled = [sOITIPreferences boolForKey:@"islandNotificationStackEnabled" default:YES];
     islandStartupHelloEnabled = [sOITIPreferences boolForKey:@"IslandStartupHelloEnabled" default:NO];
+
+    // Apple Mode: force every customization off here, after the stored values are read and before anything below
+    // compares old and new state, so turning it on behaves exactly like switching each feature off (stack cleared,
+    // startup animation cancelled, transforms reset). The stored preferences are not touched.
+    BOOL appleModeWasOn = sAppleMode;
+    sAppleMode = [sOITIPreferences boolForKey:@"appleMode" default:NO];
+    if (sAppleMode) {
+        posEnabled = NO;
+        hideEnabled = NO;
+        notEnabled = NO;
+        colorEnabled = NO;
+        transEnabled = NO;
+        scaleEnabled = NO;
+        lineDisabled = NO;
+        islandNotificationsEnabled = NO;
+        islandNotificationsHideBanner = NO;
+        islandStartupHelloEnabled = NO;
+    }
+    if (sAppleMode != appleModeWasOn && sLog) {
+        [sLog logTag:@"PREF" format:@"Apple Mode %@: Island customizations are %@", sAppleMode ? @"ON" : @"OFF",
+         sAppleMode ? @"forced off (stock Island)" : @"back to the user's settings"];
+    }
     CGFloat noticeDuration = [sOITIPreferences floatForKey:@"IslandNotificationsDuration" default:4.0];
     sIslandNoticeDuration = isfinite(noticeDuration) ? MAX(1.0, MIN(15.0, noticeDuration)) : 4.0;
 
@@ -3185,13 +3486,16 @@ static void preferencesChanged(void) {
     green = [sOITIPreferences floatForKey:@"green" default:0.0];
     blue = [sOITIPreferences floatForKey:@"blue" default:0.0];
     alpha = [sOITIPreferences floatForKey:@"alpha" default:1.0];
-    scale = [sOITIPreferences floatForKey:@"scale" default:1.0];     // legacy single scale
-    scaleX = [sOITIPreferences floatForKey:@"scaleX" default:scale];  // falls back to the legacy value
-    scaleY = [sOITIPreferences floatForKey:@"scaleY" default:scale];
+    scaleX = [sOITIPreferences floatForKey:@"RelativeScaleX" default:1.0];
+    scaleY = [sOITIPreferences floatForKey:@"RelativeScaleY" default:1.0];
 
     // Island size multipliers (Apple's layout reads them again on its next layout, so changes apply live).
     sMetricsSensorX = OITIClampMetricsFactor([sOITIPreferences floatForKey:@"MetricsSensorWidthScale" default:1.0]);
     sMetricsSensorY = OITIClampMetricsFactor([sOITIPreferences floatForKey:@"MetricsSensorHeightScale" default:1.0]);
+    if (sAppleMode) {
+        sMetricsSensorX = 1.0;
+        sMetricsSensorY = 1.0;
+    }
 
     // Diagnostics and safe-mode settings (no prefs UI yet; set with `defaults write`).
     sLog.enabled = [sOITIPreferences boolForKey:@"DiagnosticsEnabled" default:YES];
@@ -3239,6 +3543,7 @@ static void preferencesChanged(void) {
     sLoggedStatusBars = [NSHashTable weakObjectsHashTable];
 
     preferencesChanged();
+    sIslandEnabledAtLaunch = islandEnabled;
     sStartupHelloObservationWindowOpen = NO;
 
     OITObserveDarwinNotification(kOITIPrefsChangedNotification, ^{
@@ -3255,6 +3560,7 @@ static void preferencesChanged(void) {
     if (sSafeModeActive) {
         [sLog logTag:@"SESSION" format:@"SAFE MODE: OITI hooks NOT installed. Diagnostics and dumps still work."];
     } else {
+        OITIEvaluateElementBreadcrumb();
         %init(OITIHooks);
         %init(OITIResearchHooks);
         if (sLog.enabled && sLog.level >= 1) {

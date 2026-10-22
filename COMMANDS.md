@@ -418,11 +418,11 @@ Save your work on `experiments`:
 Unpack a downloaded file bundle (run from any folder):
 
 ```
-tar -xzf "$(ls -t ~/Downloads/oitui-*.tar.gz | head -n 1)" -C ~/OITUI
+tar -xzf "$(command ls -t ~/Downloads/oitui-*.tar.gz | head -n 1)" -C ~/OITUI
 ```
 
 ```
-tar -xzf "$(ls -t ~/Downloads/oitui-*.tar.gz | head -n 1)" -C ~/theos-projects/OITUI
+tar -xzf "$(command ls -t ~/Downloads/oitui-*.tar.gz | head -n 1)" -C ~/theos-projects/OITUI
 ```
 
 The first is for the Arch PC, the second for the Mac. Each unpacks the newest `oitui-*.tar.gz` in Downloads into the repo.
@@ -576,6 +576,8 @@ Build `0.1.1` (tag `OITI-0.1.1-rc1`) has a **Status Bar Layout** picker at the b
 | --- | --- | --- |
 | `grep -e SESSION -e SAFE /tmp/OITIDebug.log` | Shows the build tag and whether hooks are installed. Look for `READY hooks installed` and no `SAFE MODE`. | Phone |
 | `grep CHOICE /tmp/OITIDebug.log` | The provider UIKit chose, what OITI returned and why. Works at level 0. | Phone |
+| `grep LEARN /tmp/OITIDebug.log` | Whether this phone recorded its own native provider this launch, or why not. Level 0. † | Phone |
+| `cat /var/mobile/Library/Preferences/OITINativeProvider.plist` | The recorded native provider (machine, provider, nativeBounds, os, build, time). Absent until a launch with the Island off has built a status bar. † | Phone |
 | `grep STATUSBAR /tmp/OITIDebug.log \| tail -90` | The whole report, including `LIVE`, `LAYOUT` and `PROVIDER` lines. Needs level 1 (`DiagnosticsLevel`, section 5). | Phone |
 
 Wait at least 2 minutes between resprings so the respring-loop guard (section 7) does not trip. If it does, clear it with the `rm` row in section 7 and respring once.
@@ -588,7 +590,10 @@ Wait at least 2 minutes between resprings so the respring-loop guard (section 7)
 **Reading a `CHOICE` line.**
 - `UIKit chose X`: the provider iOS picked for this screen. With the Island off this is the device's native provider; write it down. `nil` with the Island on is what the red bar looks like.
 - `-> returning Y`: what OITI returned, with the decision text. `auto replaced ...` means OITI substituted the native provider.
-- To read a device's native provider: set Enable Dynamic Island off, respring, and read the line with `islandEnabled=0`. Add it to `OITINativeProviderNameForScreen` in `Tweak.xm`.
+- The decision text ends with `[native provider from learned record]`, `[... from table]` or `[... from width guess]`: which source gave the native provider `auto` used.
+- To read a device's native provider: set Enable Dynamic Island off, respring, and read the line with `islandEnabled=0` (or read `OITINativeProvider.plist`, which holds the same answer once a launch with the Island off has built a status bar). The table in `OITINativeProviderNameForScreen` in `Tweak.xm` only needs an entry for a device whose log shows something the learned record cannot give.
+
+**Reading a `LEARN` line** (†, build `OITI-exp-2026-10-20-b`). `LEARN recorded: native provider for <machine> is <class>` means the record was written; `LEARN record already holds ...` means nothing changed. `LEARN skipped: ...` says why nothing was recorded: the phone is not in the device table (an iPhone 8 Plus, for example: the line proves the code ran and nothing changes), UIKit chose nil or Fallback, a `UIStatusBarVisualProviderClassName` override is set, the MobileGestalt cache holds the spoofed 2556, or the cache is unreadable. Nothing is recorded in a launch that started with the Island on: turn the Island off, respring once and wait for the Island-off launch to finish building the status bar, then turn it back on. Delete the plist to forget the record (`rm /var/mobile/Library/Preferences/OITINativeProvider.plist`); it is not removed on uninstall.
 
 **To set the layout from a terminal instead of the picker:**
 
@@ -702,3 +707,48 @@ Stop the Island element from running at all (turn both switches off in settings,
 defaults write com.wilburt.oiti.prefs islandNotificationsEnabled -int 0
 ```
 
+
+## 14. Live settings check (†, builds `OITI-exp-2026-10-21-a` and `-b`)
+
+Color, opacity, outline hiding and the custom banner position now apply while the setting changes, with no respring. The Island has to be on screen to see the first three, so start a timer first (Clock app, or ask Siri for one).
+
+1. Settings > OITI > Color and Opacity. Turn on **Use Custom Color** and drag Red, Green and Blue: the Island background should follow the slider while it moves. Turn the switch off: the Island goes back to black.
+2. Turn on **Use Custom Opacity** and drag **Opacity** (the slider used to be labelled "Blue"). The Island should fade and change as you drag, then return to normal when the switch goes off. The same slider also sets the custom color's alpha when Use Custom Color is on.
+3. Root page: switch **Disable Island Outline** on and off. The outline should hide and come back live.
+4. Settings > OITI > Notifications: turn on **Use Custom Notification Position** and change X and Y. A banner window that already exists moves immediately; otherwise the next banner appears at the new position. Turning the custom position **off** only takes effect on the next banner, because OITI does not know the original frame.
+
+5. Bottom of the main OITI page: the line under the credit should read `OITI version 0.2.0-1+debug` for a debug build, or `0.2.0` for a release package. It comes from the package database (`/var/jb/var/lib/dpkg/status`). If Settings is not allowed to read that file it shows the version taken from `control` at build time with `(built-in)` after it, which for a debug build lacks the `-1+debug` part.
+
+6. Settings > OITI > Scale, **Use Custom Scale** (build `OITI-exp-2026-10-21-b`, †). The width and height sliders are relative to Apple's size now, so 1.0 is the stock Island. With the switch on and both sliders at 1.0, the Island must look the same as with the switch off, **position included**: turn it on and off and confirm nothing moves. Then change the sliders: below 1.0 shrinks the Island and its content, above 1.0 grows them. **Reset Scale** puts both back to 1.0. Anyone who had Custom Scale on before this build starts at 1.0 (the old values are not carried over).
+7. Apple Mode, main page, the switch under **Enable Dynamic Island** (†). Set a few customizations first (a custom color, Island size 0.65 / 0.70, Use Custom Position, Island Notifications on). Turn **Apple Mode** on: a blue banner appears at the top of every page, and the Island should go back to the stock iOS one without a respring (custom color and size gone, notification stack cleared, banners back to the system banner). **Fix Island Position**, **Enable Dynamic Island**, Status Bar Layout and safe mode must keep working as set. On another page the banner has **Turn Off Apple Mode**. Turn it off and every customization must return exactly as it was. Log lines: `grep -e "Apple Mode" /tmp/OITIDebug.log` shows `PREF Apple Mode ON: ...` and `OFF`.
+
+Check the log (level 1 shows COLOR, level 2 shows TOUCHPASS):
+
+```
+grep -e COLOR -e TOUCHPASS -e PREF /tmp/OITIDebug.log | tail -n 20
+```
+
+Report anything that only changes after a respring, and anything that fails to return to stock when its switch is turned off.
+
+## 15. Element crash recovery check (†, build `OITI-exp-2026-10-21-c`)
+
+While an OITI Island element is on screen, `/var/mobile/Library/Preferences/OITILiveElement.plist` exists. If SpringBoard ends while it does, the next launch keeps Island notifications and the startup animation off for 120 seconds and uses the stock banner. Test it by killing SpringBoard on purpose while a notice is showing.
+
+| Command | What it does | Where |
+| --- | --- | --- |
+| `cat /var/mobile/Library/Preferences/OITILiveElement.plist` | The breadcrumb: time, pid, reason, build. Present only while an element is live. | Phone |
+| `grep RECOVERY /tmp/OITIDebug.log` | The recovery decisions. Level 0. | Phone |
+| `killall -9 SpringBoard` | Simulates a crash. | Phone |
+
+Steps:
+
+1. Settings > OITI > Notifications: turn **Island Notifications** on and set the duration to 15 seconds. Make sure Apple Mode is off.
+2. Over SSH, confirm the breadcrumb is absent: `cat /var/mobile/Library/Preferences/OITILiveElement.plist` should say no such file.
+3. Type `killall -9 SpringBoard` in the SSH session but do not press Enter. Make a notification arrive (a message from another device, or a timer). While the Island notice is showing, press Enter. In a second SSH session you can also check that the breadcrumb exists during the notice.
+4. After the respring, wait for the Island and log in again: `grep RECOVERY /tmp/OITIDebug.log | tail -n 5` should show `RECOVERY the previous SpringBoard ended while an OITI Island element was live`, and no breadcrumb file should exist.
+5. Within 120 seconds, make another notification arrive. It must appear as the **stock banner**, and the log should show `RECOVERY: notification is not shown as an Island element (N s left)`. Everything else in OITI (position, size, color) keeps working.
+6. After 120 seconds, a new notification must be an Island notice again, and the log shows `RECOVERY window is over`.
+7. Negative check: with a notice on screen, use OITI's own **Respring** button. The log should say `RECOVERY not needed: SpringBoard was restarted from OITI's settings`, and the first notification afterwards must be an Island notice at once.
+8. Check that a normal notice that expires on its own leaves no breadcrumb: wait for it to disappear, then `cat` the file again (no such file).
+
+Note: a respring from anywhere other than OITI's settings while a notice is on screen (`sbreload`, another tweak) also counts as a dirty exit and opens the window. That is expected and costs only 120 seconds of stock banners.

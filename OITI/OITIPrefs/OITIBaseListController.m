@@ -8,6 +8,47 @@
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 
+#ifndef OITI_BUILD_VERSION
+#define OITI_BUILD_VERSION ""
+#endif
+
+// The version of OITI that is installed, for the line at the bottom of the main page. The package database is read
+// first: it holds the same version string as the installed .deb ("0.2.0", or "0.2.0-1+debug" for a debug build). The
+// Settings process may not be allowed to read it, so the version baked into this bundle at build time (from the
+// control file) is the fallback and is marked as built-in. Read once and kept.
+static NSString *OITIInstalledVersionText(void) {
+    static NSString *text;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *found = nil;
+        for (NSString *path in @[@"/var/jb/var/lib/dpkg/status", @"/var/lib/dpkg/status"]) {
+            NSString *status = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+            if (!status.length) continue;
+            for (NSString *paragraph in [status componentsSeparatedByString:@"\n\n"]) {
+                NSString *block = [paragraph stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if (![block hasPrefix:@"Package: com.wilburt.oiti\n"]) continue;
+                for (NSString *line in [block componentsSeparatedByString:@"\n"]) {
+                    if ([line hasPrefix:@"Version: "]) {
+                        found = [[line substringFromIndex:9] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        break;
+                    }
+                }
+                break;
+            }
+            if (found.length) break;
+        }
+        NSString *builtIn = @OITI_BUILD_VERSION;
+        if (found.length) {
+            text = [NSString stringWithFormat:@"OITI version %@", found];
+        } else if (builtIn.length) {
+            text = [NSString stringWithFormat:@"OITI version %@ (built-in)", builtIn];
+        } else {
+            text = @"OITI version unknown";
+        }
+    });
+    return text;
+}
+
 // Safe-mode files written by the tweak's respring-loop guard (OITI/Tweak.xm). Keep the paths in sync.
 static NSString * const kOITISafeModePath = @"/var/mobile/Library/Preferences/OITISafeMode.plist";
 static NSString * const kOITIBootLogPath = @"/var/mobile/Library/Preferences/OITIBootLog.plist";
@@ -20,6 +61,16 @@ static NSDictionary *OITISafeModeFlag(void) {
     return [flag[@"tripped"] boolValue] ? flag : nil;
 }
 
+// Apple Mode (key appleMode): the tweak forces every Island customization off while it is on. Read here only to show
+// the banner. CFPreferences is read directly so a value just written by a switch on this page is seen.
+static BOOL OITIAppleModeOn(void) {
+    CFStringRef domain = (__bridge CFStringRef)kOITIPrefsDomain;
+    CFPreferencesAppSynchronize(domain);
+    Boolean valid = false;
+    Boolean on = CFPreferencesGetAppBooleanValue(CFSTR("appleMode"), domain, &valid);
+    return valid && on;
+}
+
 static void OITIMarkRespringIntent(void) {
     [@{ @"time": @([[NSDate date] timeIntervalSince1970]) } writeToFile:kOITIRespringIntentPath atomically:YES];
 }
@@ -28,6 +79,7 @@ static void OITIMarkRespringIntent(void) {
 @property (nonatomic, strong) UIScrollView *oiti_scrollView;
 @property (nonatomic, strong) UIStackView *oiti_contentStack;
 @property (nonatomic, assign) BOOL oiti_shownSafeMode;
+@property (nonatomic, assign) BOOL oiti_shownAppleMode;
 @end
 
 @implementation OITIBaseListController
@@ -129,9 +181,70 @@ static void OITIMarkRespringIntent(void) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     // Safe mode can switch on or off while the settings are open (for example after a respring from here).
-    if (self.oiti_contentStack && (OITISafeModeFlag() != nil) != self.oiti_shownSafeMode) {
+    if (self.oiti_contentStack &&
+        ((OITISafeModeFlag() != nil) != self.oiti_shownSafeMode || OITIAppleModeOn() != self.oiti_shownAppleMode)) {
         [self oitiRefreshSettingsPage];
     }
+}
+
+// Banner shown at the top of every OITI settings page while Apple Mode is on, so it is clear why the customization
+// settings below do nothing. The main page has the switch itself, so only the other pages get the button.
+- (UIView *)oitiAppleModeBanner {
+    if (!OITIAppleModeOn()) return nil;
+    BOOL isRoot = [[self oiti_plistName] isEqualToString:@"Root"];
+
+    UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
+    card.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.16];
+    card.layer.cornerRadius = 22.0;
+    card.layer.cornerCurve = kCACornerCurveContinuous;
+    card.layer.masksToBounds = YES;
+
+    UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 8.0;
+    stack.layoutMargins = UIEdgeInsetsMake(15, 15, isRoot ? 15 : 8, 15);
+    stack.layoutMarginsRelativeArrangement = YES;
+    [card addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+    ]];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
+    title.text = @"Apple Mode is on";
+    title.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+    title.numberOfLines = 0;
+    [stack addArrangedSubview:title];
+
+    UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
+    detail.text = isRoot
+        ? @"The Island is the stock iOS one. Your customization settings are saved but not applied."
+        : @"The Island is the stock iOS one. The settings on this page are saved but not applied.";
+    detail.font = [UIFont systemFontOfSize:13.0];
+    detail.textColor = UIColor.secondaryLabelColor;
+    detail.numberOfLines = 0;
+    [stack addArrangedSubview:detail];
+
+    if (!isRoot) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+        [button setTitle:@"Turn Off Apple Mode" forState:UIControlStateNormal];
+        [button.heightAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
+        [button addTarget:self action:@selector(oitiTurnOffAppleMode:) forControlEvents:UIControlEventTouchUpInside];
+        [stack addArrangedSubview:button];
+    }
+    return card;
+}
+
+- (void)oitiTurnOffAppleMode:(id)sender {
+    CFStringRef domain = (__bridge CFStringRef)kOITIPrefsDomain;
+    CFPreferencesSetAppValue(CFSTR("appleMode"), kCFBooleanFalse, domain);
+    CFPreferencesAppSynchronize(domain);
+    OITPostDarwinNotification(kOITIPrefsChanged);
+    [self oitiRefreshSettingsPage];
 }
 
 // Banner shown at the top of every OITI settings page while the respring-loop guard has OITI's hooks switched off.
@@ -210,6 +323,9 @@ static void OITIMarkRespringIntent(void) {
     UIView *safeModeBanner = [self oitiSafeModeBanner];
     self.oiti_shownSafeMode = safeModeBanner != nil;
     if (safeModeBanner) [self.oiti_contentStack addArrangedSubview:safeModeBanner];
+    UIView *appleModeBanner = [self oitiAppleModeBanner];
+    self.oiti_shownAppleMode = appleModeBanner != nil;
+    if (appleModeBanner) [self.oiti_contentStack addArrangedSubview:appleModeBanner];
     UIView *card = nil;
     UIStackView *rows = nil;
     NSString *pendingFooter = nil;
@@ -266,6 +382,13 @@ static void OITIMarkRespringIntent(void) {
         credit.textAlignment = NSTextAlignmentCenter;
         credit.font = [UIFont systemFontOfSize:11.0];
         [self.oiti_contentStack addArrangedSubview:credit];
+
+        UILabel *version = [[UILabel alloc] initWithFrame:CGRectZero];
+        version.text = OITIInstalledVersionText();
+        version.textColor = UIColor.tertiaryLabelColor;
+        version.textAlignment = NSTextAlignmentCenter;
+        version.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightMedium];
+        [self.oiti_contentStack addArrangedSubview:version];
     }
 }
 
@@ -347,6 +470,10 @@ static void OITIMarkRespringIntent(void) {
 - (void)oitiSwitchChanged:(UISwitch *)sender {
     PSSpecifier *specifier = objc_getAssociatedObject(sender, @selector(oitiSwitchChanged:));
     [self setPreferenceValue:@(sender.on) specifier:specifier];
+    // Apple Mode shows a banner on every page, so rebuild this one to add or remove it.
+    if ([[specifier propertyForKey:@"key"] isEqualToString:@"appleMode"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self oitiRefreshSettingsPage]; });
+    }
 }
 
 - (UIView *)oitiSliderRow:(PSSpecifier *)specifier {
