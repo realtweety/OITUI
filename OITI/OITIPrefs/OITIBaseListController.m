@@ -476,6 +476,16 @@ static void OITIMarkRespringIntent(void) {
     }
 }
 
+// Text for a slider's value. plist keys: valueFormat (a format taking one double, default "%.2f") and zeroText (shown
+// instead when the value is below 0.5, for sliders where 0 means "never").
+static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
+    NSString *zeroText = [specifier propertyForKey:@"zeroText"];
+    if ([zeroText isKindOfClass:[NSString class]] && zeroText.length && value < 0.5) return zeroText;
+    NSString *format = [specifier propertyForKey:@"valueFormat"];
+    if (![format isKindOfClass:[NSString class]] || !format.length) format = @"%.2f";
+    return [NSString stringWithFormat:format, value];
+}
+
 - (UIView *)oitiSliderRow:(PSSpecifier *)specifier {
     UIStackView *row = [[UIStackView alloc] initWithFrame:CGRectZero];
     row.axis = UILayoutConstraintAxisVertical; row.spacing = 9;
@@ -489,7 +499,7 @@ static void OITIMarkRespringIntent(void) {
     UILabel *number = [[UILabel alloc] initWithFrame:CGRectZero];
     number.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightRegular];
     number.textColor = UIColor.secondaryLabelColor; number.textAlignment = NSTextAlignmentRight;
-    number.text = [NSString stringWithFormat:@"%.2f", value.doubleValue];
+    number.text = OITISliderValueText(specifier, value.doubleValue);
     [top addArrangedSubview:name]; [top addArrangedSubview:number];
     UISlider *slider = [[UISlider alloc] initWithFrame:CGRectZero];
     slider.minimumValue = min.floatValue; slider.maximumValue = max.floatValue; slider.value = value.floatValue;
@@ -503,8 +513,8 @@ static void OITIMarkRespringIntent(void) {
 
 - (void)oitiSliderChanged:(UISlider *)slider {
     UILabel *value = objc_getAssociatedObject(slider, @selector(oitiSliderValueLabel:));
-    value.text = [NSString stringWithFormat:@"%.2f", slider.value];
     PSSpecifier *specifier = objc_getAssociatedObject(slider, @selector(oitiSliderChanged:));
+    value.text = OITISliderValueText(specifier, slider.value);
     NSMutableDictionary *state = objc_getAssociatedObject(slider, @selector(oitiSliderState:));
     if (!state) {
         state = [NSMutableDictionary dictionary];

@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>title</key>
+    <string>Download Progress</string>
+    <key>items</key>
+    <array>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Download Progress (Experimental)</string>
+        <key>footerText</key>
+        <string>Shows the Island as a progress bar with the downloaded size, the total size and the speed while something downloads. Off by default. Early feature: only the built-in test download works so far. App Store and browser downloads come later.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadProgressEnabled</string>
+        <key>label</key>
+        <string>Show Download Progress</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Return to Idle</string>
+        <key>footerText</key>
+        <string>The expanded Island goes back to idle when either limit is reached. Never means no limit. The download itself carries on, and the progress bar comes back when the next download starts. Swiping the bar away does the same.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>After this much is downloaded</string>
+        <key>default</key>
+        <real>0.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadIdleAfterMB</string>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>5000.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f MB</string>
+        <key>zeroText</key>
+        <string>Never</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>After this long on screen</string>
+        <key>default</key>
+        <real>0.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadIdleAfterSeconds</string>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>900.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f s</string>
+        <key>zeroText</key>
+        <string>Never</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Test Download</string>
+        <key>footerText</key>
+        <string>A simulated download with a changing speed, for trying the layout and the limits. Turn on Show Download Progress first. Apple Mode hides it like every other customization.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Test download size</string>
+        <key>default</key>
+        <real>800.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadTestSizeMB</string>
+        <key>min</key>
+        <real>50.0</real>
+        <key>max</key>
+        <real>5000.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f MB</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Start Test Download</string>
+        <key>action</key>
+        <string>startTestDownload</string>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Stop Test Download</string>
+        <key>action</key>
+        <string>stopTestDownload</string>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+      </dict>
+    </array>
+  </dict>
+</plist>

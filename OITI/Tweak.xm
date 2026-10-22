@@ -76,6 +76,17 @@
 //      returned, and the class each live status bar ended up with. Status Bar Layout (key StatusBarLayout) decides
 //      whether the choice is replaced.
 //
+// DOWNLOAD PROGRESS (UNTESTED, stage 1: fake download only): key DownloadProgressEnabled (default off, Settings > OITI >
+// Download Progress). While a download is tracked, one expanded Island element shows a progress bar with the downloaded
+// size, the total size and the speed (compact: app icon and percentage). It is an ordinary OITI element (reason
+// "download-progress"), so the breadcrumb, the recovery window, the stack and swipe-to-dismiss all apply. It does not
+// expire on the notice timer: it ends when the downloads finish (a short "complete" state), when a limit is reached
+// (DownloadIdleAfterMB downloaded or DownloadIdleAfterSeconds on screen, 0 = never), or when it is dismissed. After a limit
+// or a dismissal it stays away until the next download starts; the download itself carries on. The tracker
+// (OITIDownloadUpdate / OITIDownloadFinish) takes bytes from any source and aggregates several downloads; the only
+// source so far is the test download started and stopped from the settings page (Darwin notifications
+// com.wilburt.oiti/TestDownloadStart and TestDownloadStop, size DownloadTestSizeMB). Apple Mode forces it off.
+//
 // ELEMENT CRASH RECOVERY (UNTESTED): while any of OITI's Island elements (a notice or the startup Hello) is live, the
 // file OITILiveElement.plist exists; it is written just before the element is registered and deleted when the last one
 // leaves. A file found at launch means the previous SpringBoard ended while an OITI element was live (a crash, or a
@@ -143,11 +154,13 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-21-c";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-21-d";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
+static NSString * const kOITITestDownloadStartNotification = @"com.wilburt.oiti/TestDownloadStart";
+static NSString * const kOITITestDownloadStopNotification = @"com.wilburt.oiti/TestDownloadStop";
 
 static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
 static NSString * const kOITIDumpTriggerPath = @"/tmp/OITIDump.trigger";
@@ -216,6 +229,10 @@ static BOOL islandNotificationsEnabled;       // OITI > Notifications: show noti
 static BOOL islandNotificationsHideBanner;    // also fade the stock banner window out while our element is up (default NO)
 static BOOL sIslandNotificationStackEnabled = YES; // Experimental multi-notification stack (default YES for existing behavior)
 static BOOL sAppleMode;                        // appleMode: every customization below is forced off while YES
+static BOOL sDownloadProgressEnabled;          // DownloadProgressEnabled (default NO)
+static CGFloat sDownloadIdleAfterMB = 0;       // DownloadIdleAfterMB: return the Island to idle after this many MB downloaded, 0 = never
+static CGFloat sDownloadIdleAfterSeconds = 0;  // DownloadIdleAfterSeconds: the same after this long on screen, 0 = never
+static CGFloat sDownloadTestSizeMB = 800;      // DownloadTestSizeMB: size of the test download
 static BOOL islandStartupHelloEnabled;        // OITI > Startup Animation prototype (default NO)
 static BOOL sStartupHelloObservationWindowOpen;
 static BOOL sStartupHelloActivitySeen;
@@ -372,7 +389,8 @@ static NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
     return @{
         @"fixEnabled": @(fixEnabled), @"islandEnabled": @(islandEnabled), @"posEnabled": @(posEnabled),
         @"hideEnabled": @(hideEnabled), @"notificationFix": @(notificationFix), @"notEnabled": @(notEnabled),
-        @"colorEnabled": @(colorEnabled), @"transEnabled": @(transEnabled), @"scaleEnabled": @(scaleEnabled), @"appleMode": @(sAppleMode),
+        @"colorEnabled": @(colorEnabled), @"transEnabled": @(transEnabled), @"scaleEnabled": @(scaleEnabled), @"appleMode": @(sAppleMode), @"downloadProgress": @(sDownloadProgressEnabled),
+        @"downloadIdleMB": @(sDownloadIdleAfterMB), @"downloadIdleSeconds": @(sDownloadIdleAfterSeconds),
         @"lineDisabled": @(lineDisabled),
         @"xPos": @(xPos), @"yPos": @(yPos), @"xNot": @(xNot), @"yNot": @(yNot),
         @"red": @(red), @"green": @(green), @"blue": @(blue), @"alpha": @(alpha), @"scaleX": @(scaleX), @"scaleY": @(scaleY),
@@ -1432,6 +1450,9 @@ static __weak id sSystemApertureController;   // SBSystemApertureController: the
 static NSMutableArray<NSDictionary *> *sIslandNoticeItems;
 static id sPendingNoticeRequest;   // the NCNotificationRequest being presented, kept with its element for the tap action
 static NSMutableDictionary *sStartupHelloItem;
+static NSMutableDictionary *sDownloadItem;   // the Island element showing download progress, or nil
+static CFAbsoluteTime sDownloadShownAt = 0;  // when it went up, for the time limit
+static void OITIDownloadItemRemoved(NSDictionary *item, NSString *reason);
 static const NSUInteger kOITINoticeStackLimit = 4;   // one expanded plus three compact, or four compact
 static void OITIDismissNoticeItem(NSDictionary *item);
 static void OITIRestoreCorners(void);
@@ -1722,6 +1743,7 @@ static void OITIRemoveNoticeItem(NSDictionary *item, NSString *reason) {
     OITIDismissNoticeItem(item);
     [sIslandNoticeItems removeObjectAtIndex:index];
     if (item == sStartupHelloItem) sStartupHelloItem = nil;
+    if (item == sDownloadItem) OITIDownloadItemRemoved(item, reason);
     OITIRefreshNewestNoticeComposite();
     [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK removed %@ reason=%@ remaining=%lu",
      OITIKVCObject(item[@"element"], @"elementIdentifier"), reason, (unsigned long)sIslandNoticeItems.count];
@@ -1846,6 +1868,76 @@ static UIImage *OITIRoundedIcon(UIImage *image, CGFloat side) {
     return CGSizeMake(width, ceil(fitted.height));
 }
 @end
+
+// ---- Download progress element views ----------------------------------------------------------
+@interface OITIProgressBarView : UIView
+@property (nonatomic, readonly) double fraction;
+- (void)setFraction:(double)fraction animated:(BOOL)animated;
+- (void)setComplete:(BOOL)complete;
+@end
+
+@implementation OITIProgressBarView {
+    UIView *_fill;
+}
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.22];
+        self.layer.cornerRadius = 3.0;
+        self.layer.cornerCurve = kCACornerCurveContinuous;
+        self.layer.masksToBounds = YES;
+        _fill = [[UIView alloc] initWithFrame:CGRectZero];
+        _fill.backgroundColor = [UIColor systemBlueColor];
+        [self addSubview:_fill];
+    }
+    return self;
+}
+- (CGSize)intrinsicContentSize {
+    return CGSizeMake(UIViewNoIntrinsicMetric, 6.0);
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    _fill.frame = CGRectMake(0, 0, self.bounds.size.width * _fraction, self.bounds.size.height);
+}
+- (void)setFraction:(double)fraction animated:(BOOL)animated {
+    _fraction = isfinite(fraction) ? MAX(0.0, MIN(1.0, fraction)) : 0.0;
+    CGRect target = CGRectMake(0, 0, self.bounds.size.width * _fraction, self.bounds.size.height);
+    if (animated && self.window) {
+        [UIView animateWithDuration:0.45 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveLinear
+                         animations:^{ self->_fill.frame = target; } completion:nil];
+    } else {
+        _fill.frame = target;
+    }
+}
+- (void)setComplete:(BOOL)complete {
+    _fill.backgroundColor = complete ? [UIColor systemGreenColor] : [UIColor systemBlueColor];
+}
+@end
+
+// The expanded body of the download element: the bar with one line of text under it.
+static OITINoticeStackView *OITIBuildDownloadStack(OITIProgressBarView **barOut, UILabel **detailOut) {
+    OITIProgressBarView *bar = [[OITIProgressBarView alloc] initWithFrame:CGRectZero];
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    UILabel *detail = [[UILabel alloc] init];
+    detail.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightMedium];
+    detail.textColor = [UIColor colorWithWhite:1.0 alpha:0.8];
+    detail.numberOfLines = 1;
+    detail.lineBreakMode = NSLineBreakByTruncatingTail;
+    detail.adjustsFontSizeToFitWidth = YES;
+    detail.minimumScaleFactor = 0.8;
+    detail.text = @" ";
+    OITINoticeStackView *stack = [OITINoticeStackView new];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.alignment = UIStackViewAlignmentFill;
+    stack.distribution = UIStackViewDistributionFill;
+    stack.spacing = 7;
+    [stack addArrangedSubview:bar];
+    [stack addArrangedSubview:detail];
+    CGSize size = [stack sizeThatFits:CGSizeMake(260, CGFLOAT_MAX)];
+    stack.frame = CGRectMake(0, 0, size.width, size.height);
+    *barOut = bar;
+    *detailOut = detail;
+    return stack;
+}
 
 @implementation OITIStartupVideoView
 + (Class)layerClass { return [AVPlayerLayer class]; }
@@ -2430,7 +2522,8 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
 
     if (!sIslandNoticeItems) sIslandNoticeItems = [NSMutableArray array];
     BOOL startupHello = [reason isEqualToString:@"startup-hello"];
-    NSInteger style = startupHello ? 2 : OITINoticeStyle();
+    BOOL downloadProgress = [reason isEqualToString:@"download-progress"];
+    NSInteger style = (startupHello || downloadProgress) ? 2 : OITINoticeStyle();
     if (!sIslandNotificationStackEnabled && sIslandNoticeItems.count) {
         NSArray<NSDictionary *> *previousItems = [sIslandNoticeItems copy];
         for (NSDictionary *previous in previousItems) OITIRemoveNoticeItem(previous, @"stack-disabled-replaced");
@@ -2453,6 +2546,16 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
         UIView *leadingView = nil, *trailingView = nil, *primaryView = nil, *secondaryView = nil;
         UILabel *secondaryBody = nil;
         OITIBuildNoticeViews(info, &leadingView, &trailingView, &primaryView, &secondaryView, &secondaryBody);
+        OITIProgressBarView *downloadBar = nil;
+        UILabel *downloadDetail = nil;
+        if (downloadProgress) {
+            // Same icon and headline as a notice; the body is the progress bar and its text line.
+            secondaryView = OITIBuildDownloadStack(&downloadBar, &downloadDetail);
+            secondaryBody = nil;
+            CGRect headlineFrame = primaryView.frame;
+            headlineFrame.size.width = 260;   // the headline text changes (name, "2 downloads"), so keep the width fixed
+            primaryView.frame = headlineFrame;
+        }
         OITIStartupVideoView *startupVideoView = startupHello ? OITIBuildStartupVideoView() : nil;
         if (startupVideoView) {
             // The normal notification chrome puts an app icon on the left and a short title on
@@ -2504,6 +2607,14 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
             } else {
                 item[@"timeoutDuration"] = @(kOITIStartupHelloPrototypeDuration);
             }
+        }
+        if (downloadProgress) {
+            item[@"download"] = @YES;
+            item[@"downloadBar"] = downloadBar;
+            item[@"downloadDetail"] = downloadDetail;
+            item[@"timeoutDuration"] = @(365.0 * 24.0 * 3600.0);   // the download decides when this ends, not the notice timer
+            sDownloadItem = item;
+            sDownloadShownAt = CFAbsoluteTimeGetCurrent();
         }
         OITISetNoticeLayout(item, style, YES);
         NSUInteger stackLimit = sIslandNotificationStackEnabled ? kOITINoticeStackLimit : 1;
@@ -2631,6 +2742,250 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
         else if (sIslandNoticeItems.count && style != 0) OITISetNoticeLayout(sIslandNoticeItems.lastObject, style, YES);
         return NO;
     }
+}
+
+// =============================================================================================
+// MARK: Download progress (UNTESTED, stage 1: the fake download is the only source)
+// =============================================================================================
+// A small tracker that takes bytes from any source and drives one Island element. Everything here runs on the main
+// thread. Sources call OITIDownloadUpdate while a download runs and OITIDownloadFinish when it ends.
+
+static NSMutableDictionary<NSString *, NSMutableDictionary *> *sDownloads;   // id -> title, bundleID, downloaded, total, speed, lastBytes, lastTime
+static NSTimer *sDownloadTimer;
+static BOOL sDownloadCollapsed = NO;            // dismissed or limit reached: stays away until a new download starts
+static CFAbsoluteTime sDownloadNextPresentAttempt = 0;
+static NSUInteger sDownloadCompleteGeneration = 0;
+
+static NSString *OITIDownloadBytesText(double bytes) {
+    return [NSByteCountFormatter stringFromByteCount:(long long)MAX(0.0, bytes) countStyle:NSByteCountFormatterCountStyleFile];
+}
+
+// Totals over every tracked download, or nil when none is running.
+static NSDictionary *OITIDownloadSnapshot(void) {
+    if (!sDownloads.count) return nil;
+    double downloaded = 0, total = 0, speed = 0;
+    BOOL totalKnown = YES;
+    NSString *title = nil, *bundleID = nil;
+    for (NSDictionary *download in sDownloads.allValues) {
+        downloaded += [download[@"downloaded"] doubleValue];
+        double size = [download[@"total"] doubleValue];
+        if (size > 0) total += size; else totalKnown = NO;
+        speed += [download[@"speed"] doubleValue];
+        if (!title) { title = download[@"title"]; bundleID = download[@"bundleID"]; }
+    }
+    return @{ @"count": @(sDownloads.count), @"downloaded": @(downloaded), @"total": @(totalKnown ? total : 0.0),
+              @"speed": @(speed), @"title": title ?: @"Download", @"bundleID": bundleID ?: @"" };
+}
+
+// Writes the snapshot into the element's views. complete shows the finished state.
+static void OITIDownloadUpdateViews(NSDictionary *snapshot, BOOL complete) {
+    NSDictionary *item = sDownloadItem;
+    if (!item || !snapshot) return;
+    OITIProgressBarView *bar = item[@"downloadBar"];
+    UILabel *detail = item[@"downloadDetail"];
+    UILabel *headline = (UILabel *)item[@"primaryView"];
+    UILabel *trailing = (UILabel *)item[@"trailingView"];
+    double downloaded = [snapshot[@"downloaded"] doubleValue];
+    double total = [snapshot[@"total"] doubleValue];
+    double speed = [snapshot[@"speed"] doubleValue];
+    NSUInteger count = [snapshot[@"count"] unsignedIntegerValue];
+    double fraction = complete ? 1.0 : (total > 0 ? downloaded / total : 0.0);
+
+    if ([headline isKindOfClass:[UILabel class]]) {
+        NSString *text = count > 1 ? [NSString stringWithFormat:@"%lu downloads", (unsigned long)count] : snapshot[@"title"];
+        if (![headline.text isEqualToString:text]) headline.text = text;
+    }
+    NSString *detailText;
+    if (complete) {
+        detailText = [NSString stringWithFormat:@"Download complete · %@", OITIDownloadBytesText(downloaded)];
+    } else if (total > 0) {
+        detailText = [NSString stringWithFormat:@"%@ of %@ · %@/s", OITIDownloadBytesText(downloaded), OITIDownloadBytesText(total),
+                      OITIDownloadBytesText(speed)];
+    } else {
+        detailText = [NSString stringWithFormat:@"%@ · %@/s", OITIDownloadBytesText(downloaded), OITIDownloadBytesText(speed)];
+    }
+    if (![detail.text isEqualToString:detailText]) detail.text = detailText;
+    if ([trailing isKindOfClass:[UILabel class]]) {
+        NSString *percent = (total > 0 || complete) ? [NSString stringWithFormat:@"%d%%", (int)floor(fraction * 100.0 + 0.0001)] : @"…";
+        if (![trailing.text isEqualToString:percent]) {
+            trailing.text = percent;
+            [trailing sizeToFit];
+        }
+    }
+    [bar setComplete:complete];
+    [bar setFraction:fraction animated:YES];
+}
+
+static void OITIDownloadsEnsureTimer(void);
+static void OITIFakeDownloadAdvance(void);
+
+// Presents, updates and ends the element for the current state. Called after every update and from the timer.
+static void OITIDownloadsRefresh(void) {
+    if (!sDownloadProgressEnabled) {
+        if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"feature-disabled");
+        return;
+    }
+    NSDictionary *snapshot = OITIDownloadSnapshot();
+    if (!snapshot) return;   // OITIDownloadFinish handles the end
+    sDownloadCompleteGeneration++;   // a pending "complete" removal no longer applies
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+
+    if (sDownloadItem) {
+        double limitBytes = sDownloadIdleAfterMB * 1000.0 * 1000.0;   // decimal MB, like the size text
+        BOOL byBytes = limitBytes > 0 && [snapshot[@"downloaded"] doubleValue] >= limitBytes;
+        BOOL byTime = sDownloadIdleAfterSeconds > 0 && now - sDownloadShownAt >= sDownloadIdleAfterSeconds;
+        if (byBytes || byTime) {
+            [sLog logTag:@"DOWNLOAD" format:@"limit reached (%@): the Island returns to idle, the download carries on",
+             byBytes ? [NSString stringWithFormat:@"%@ downloaded", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue])]
+                     : [NSString stringWithFormat:@"%.0f s on screen", (double)(now - sDownloadShownAt)]];
+            sDownloadCollapsed = YES;
+            OITIRemoveNoticeItem(sDownloadItem, @"download-limit");
+            return;
+        }
+    } else if (!sDownloadCollapsed && now >= sDownloadNextPresentAttempt) {
+        NSString *message = [NSString stringWithFormat:@"%@ of %@", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue]),
+                             [snapshot[@"total"] doubleValue] > 0 ? OITIDownloadBytesText([snapshot[@"total"] doubleValue]) : @"?"];
+        NSDictionary *info = @{ @"bundleID": snapshot[@"bundleID"], @"appName": @"Downloads", @"title": snapshot[@"title"], @"message": message };
+        if (OITIPresentNoticeElement(info, @"download-progress")) {
+            [sLog logTag:@"DOWNLOAD" format:@"progress element up for %@", snapshot[@"title"]];
+        } else {
+            sDownloadNextPresentAttempt = now + 10.0;   // not ready, recovering or failed: try again later, not every tick
+        }
+    }
+    OITIDownloadUpdateViews(snapshot, NO);
+}
+
+// Called from OITIRemoveNoticeItem when the download element leaves. Removals we made ourselves are recorded as such;
+// anything else (a swipe, a notification replacing it, stack capacity) keeps it away until the next download starts.
+static void OITIDownloadItemRemoved(NSDictionary *item, NSString *reason) {
+    sDownloadItem = nil;
+    NSArray<NSString *> *ours = @[@"download-limit", @"download-complete", @"download-cancelled", @"feature-disabled"];
+    if (![ours containsObject:reason]) {
+        sDownloadCollapsed = YES;
+        [sLog logTag:@"DOWNLOAD" format:@"progress element removed (%@): it stays away until the next download starts", reason];
+    }
+}
+
+// Sources call this with the bytes so far. total is 0 when unknown. Speed is smoothed from the byte deltas.
+static void OITIDownloadUpdate(NSString *identifier, NSString *title, NSString *bundleID, double downloaded, double total) {
+    if (!identifier.length) return;
+    if (!sDownloads) sDownloads = [NSMutableDictionary dictionary];
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    NSMutableDictionary *download = sDownloads[identifier];
+    if (!download) {
+        download = [NSMutableDictionary dictionary];
+        sDownloads[identifier] = download;
+        download[@"speed"] = @0.0;
+        download[@"lastBytes"] = @(MAX(0.0, downloaded));
+        download[@"lastTime"] = @(now);
+        sDownloadCollapsed = NO;   // a new download brings the element back
+        sDownloadNextPresentAttempt = 0;
+        [sLog logTag:@"DOWNLOAD" format:@"started %@ (%@), total %@", identifier, title ?: @"?",
+         total > 0 ? OITIDownloadBytesText(total) : @"unknown"];
+    }
+    download[@"title"] = title.length ? title : @"Download";
+    download[@"bundleID"] = bundleID ?: @"";
+    download[@"total"] = @(MAX(0.0, total));
+    download[@"downloaded"] = @(MAX(0.0, downloaded));
+    double dt = now - [download[@"lastTime"] doubleValue];
+    if (dt >= 0.25) {
+        double instant = MAX(0.0, downloaded - [download[@"lastBytes"] doubleValue]) / dt;
+        double previous = [download[@"speed"] doubleValue];
+        download[@"speed"] = @(previous > 0 ? previous * 0.7 + instant * 0.3 : instant);
+        download[@"lastBytes"] = @(MAX(0.0, downloaded));
+        download[@"lastTime"] = @(now);
+    }
+    OITIDownloadsEnsureTimer();
+    OITIDownloadsRefresh();
+}
+
+// A download ended: completed YES shows a short "complete" state once the last one is done, NO (cancelled or failed)
+// removes the element at once.
+static void OITIDownloadFinish(NSString *identifier, BOOL completed) {
+    NSMutableDictionary *download = sDownloads[identifier];
+    if (!download) return;
+    double total = [download[@"total"] doubleValue];
+    if (completed && total > 0) download[@"downloaded"] = @(total);
+    NSDictionary *finalSnapshot = OITIDownloadSnapshot();
+    [sDownloads removeObjectForKey:identifier];
+    [sLog logTag:@"DOWNLOAD" format:@"%@ %@", completed ? @"finished" : @"cancelled", identifier];
+    OITIDownloadsEnsureTimer();
+    if (sDownloads.count) {
+        OITIDownloadsRefresh();
+        return;
+    }
+    if (!sDownloadItem) return;
+    if (!completed) {
+        OITIRemoveNoticeItem(sDownloadItem, @"download-cancelled");
+        return;
+    }
+    OITIDownloadUpdateViews(finalSnapshot, YES);
+    NSUInteger generation = ++sDownloadCompleteGeneration;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (generation == sDownloadCompleteGeneration && sDownloadItem && !sDownloads.count) {
+            OITIRemoveNoticeItem(sDownloadItem, @"download-complete");
+        }
+    });
+}
+
+static void OITIDownloadsEnsureTimer(void) {
+    BOOL needed = sDownloads.count > 0;
+    if (needed && !sDownloadTimer) {
+        sDownloadTimer = [NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) {
+            OITIFakeDownloadAdvance();
+            OITIDownloadsRefresh();
+        }];
+        [[NSRunLoop mainRunLoop] addTimer:sDownloadTimer forMode:NSRunLoopCommonModes];
+    } else if (!needed && sDownloadTimer) {
+        [sDownloadTimer invalidate];
+        sDownloadTimer = nil;
+    }
+}
+
+// ---- Test download (started and stopped from Settings > OITI > Download Progress) ---------------
+static BOOL sFakeDownloadActive = NO;
+static double sFakeDownloadBytes = 0, sFakeDownloadTotal = 0, sFakeDownloadSpeed = 0;
+static CFAbsoluteTime sFakeDownloadLastTick = 0;
+static NSString * const kOITIFakeDownloadIdentifier = @"oiti.test-download";
+
+static void OITIFakeDownloadStart(void) {
+    if (sFakeDownloadActive) {
+        [sLog logTag:@"DOWNLOAD" format:@"test download is already running"];
+        return;
+    }
+    CGFloat sizeMB = isfinite(sDownloadTestSizeMB) ? MAX(50.0, MIN(5000.0, sDownloadTestSizeMB)) : 800.0;
+    sFakeDownloadTotal = sizeMB * 1000.0 * 1000.0;
+    sFakeDownloadBytes = 0;
+    sFakeDownloadSpeed = 8.0e6 + (double)arc4random_uniform(6000000);
+    sFakeDownloadLastTick = CFAbsoluteTimeGetCurrent();
+    sFakeDownloadActive = YES;
+    [sLog logTag:@"DOWNLOAD" format:@"test download started: %@ (Download Progress is %@)", OITIDownloadBytesText(sFakeDownloadTotal),
+     sDownloadProgressEnabled ? @"on" : @"OFF, so nothing will show"];
+    OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"Test Download", @"com.apple.AppStore", 0, sFakeDownloadTotal);
+}
+
+// Called from the tracker's timer: moves the simulated bytes along with a speed that drifts between 2 and 28 MB/s.
+static void OITIFakeDownloadAdvance(void) {
+    if (!sFakeDownloadActive) return;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    double dt = MAX(0.0, MIN(2.0, now - sFakeDownloadLastTick));
+    sFakeDownloadLastTick = now;
+    double drift = ((double)arc4random_uniform(2001) - 1000.0) / 1000.0 * 1.5e6;
+    sFakeDownloadSpeed = MAX(2.0e6, MIN(28.0e6, sFakeDownloadSpeed + drift));
+    sFakeDownloadBytes = MIN(sFakeDownloadTotal, sFakeDownloadBytes + sFakeDownloadSpeed * dt);
+    if (sFakeDownloadBytes >= sFakeDownloadTotal) {
+        sFakeDownloadActive = NO;
+        OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"Test Download", @"com.apple.AppStore", sFakeDownloadTotal, sFakeDownloadTotal);
+        OITIDownloadFinish(kOITIFakeDownloadIdentifier, YES);
+        return;
+    }
+    OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"Test Download", @"com.apple.AppStore", sFakeDownloadBytes, sFakeDownloadTotal);
+}
+
+static void OITIFakeDownloadStop(void) {
+    if (!sFakeDownloadActive) return;
+    sFakeDownloadActive = NO;
+    OITIDownloadFinish(kOITIFakeDownloadIdentifier, NO);
 }
 
 // The developer trigger (touch /tmp/OITIPoC.trigger). Independent of the islandNotificationsEnabled setting because
@@ -3422,6 +3777,14 @@ static void preferencesChanged(void) {
     islandNotificationsHideBanner = [sOITIPreferences boolForKey:@"islandNotificationsHideBanner" default:NO];
     sIslandNotificationStackEnabled = [sOITIPreferences boolForKey:@"islandNotificationStackEnabled" default:YES];
     islandStartupHelloEnabled = [sOITIPreferences boolForKey:@"IslandStartupHelloEnabled" default:NO];
+    BOOL downloadProgressWasEnabled = sDownloadProgressEnabled;
+    sDownloadProgressEnabled = [sOITIPreferences boolForKey:@"DownloadProgressEnabled" default:NO];
+    CGFloat downloadIdleMB = [sOITIPreferences floatForKey:@"DownloadIdleAfterMB" default:0.0];
+    sDownloadIdleAfterMB = isfinite(downloadIdleMB) ? MAX(0.0, MIN(5000.0, downloadIdleMB)) : 0.0;
+    CGFloat downloadIdleSeconds = [sOITIPreferences floatForKey:@"DownloadIdleAfterSeconds" default:0.0];
+    sDownloadIdleAfterSeconds = isfinite(downloadIdleSeconds) ? MAX(0.0, MIN(900.0, downloadIdleSeconds)) : 0.0;
+    CGFloat downloadTestMB = [sOITIPreferences floatForKey:@"DownloadTestSizeMB" default:800.0];
+    sDownloadTestSizeMB = isfinite(downloadTestMB) ? MAX(50.0, MIN(5000.0, downloadTestMB)) : 800.0;
 
     // Apple Mode: force every customization off here, after the stored values are read and before anything below
     // compares old and new state, so turning it on behaves exactly like switching each feature off (stack cleared,
@@ -3439,6 +3802,10 @@ static void preferencesChanged(void) {
         islandNotificationsEnabled = NO;
         islandNotificationsHideBanner = NO;
         islandStartupHelloEnabled = NO;
+        sDownloadProgressEnabled = NO;
+    }
+    if (sDownloadProgressEnabled != downloadProgressWasEnabled) {
+        dispatch_async(dispatch_get_main_queue(), ^{ OITIDownloadsRefresh(); });   // present or remove the element for the new setting
     }
     if (sAppleMode != appleModeWasOn && sLog) {
         [sLog logTag:@"PREF" format:@"Apple Mode %@: Island customizations are %@", sAppleMode ? @"ON" : @"OFF",
@@ -3561,6 +3928,12 @@ static void preferencesChanged(void) {
         [sLog logTag:@"SESSION" format:@"SAFE MODE: OITI hooks NOT installed. Diagnostics and dumps still work."];
     } else {
         OITIEvaluateElementBreadcrumb();
+        OITObserveDarwinNotification(kOITITestDownloadStartNotification, ^{
+            dispatch_async(dispatch_get_main_queue(), ^{ OITIFakeDownloadStart(); });
+        });
+        OITObserveDarwinNotification(kOITITestDownloadStopNotification, ^{
+            dispatch_async(dispatch_get_main_queue(), ^{ OITIFakeDownloadStop(); });
+        });
         %init(OITIHooks);
         %init(OITIResearchHooks);
         if (sLog.enabled && sLog.level >= 1) {

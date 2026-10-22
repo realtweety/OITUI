@@ -26,7 +26,7 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>footerText</key>
-        <string>Turns off every Island customization and leaves a stock iOS Dynamic Island. Off while on: custom position, scale, Island size, color, opacity, outline hiding, hide when not in use, custom notification position, Island Notifications and the startup animation. Still active: Enable Dynamic Island, Fix Island Position, Fix Notification Positioning, Status Bar Layout and safe mode. Your settings are kept and return when Apple Mode is turned off.</string>
+        <string>Turns off every Island customization and leaves a stock iOS Dynamic Island. Off while on: custom position, scale, Island size, color, opacity, outline hiding, hide when not in use, custom notification position, Island Notifications, download progress and the startup animation. Still active: Enable Dynamic Island, Fix Island Position, Fix Notification Positioning, Status Bar Layout and safe mode. Your settings are kept and return when Apple Mode is turned off.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -185,6 +185,16 @@
 	      <true/>
 	      <key>label</key>
 	      <string>Notifications</string>
+      </dict>
+        <dict>
+        <key>cell</key>
+        <string>PSLinkCell</string>
+        <key>detail</key>
+        <string>OITIDownloadsListController</string>
+        <key>isController</key>
+        <true/>
+        <key>label</key>
+        <string>Download Progress</string>
       </dict>
       <dict>
 	      <key>cell</key>
