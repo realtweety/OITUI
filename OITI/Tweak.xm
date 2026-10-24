@@ -76,16 +76,20 @@
 //      returned, and the class each live status bar ended up with. Status Bar Layout (key StatusBarLayout) decides
 //      whether the choice is replaced.
 //
-// DOWNLOAD PROGRESS (UNTESTED, stage 1: fake download only): key DownloadProgressEnabled (default off, Settings > OITI >
-// Download Progress). While a download is tracked, one expanded Island element shows a progress bar with the downloaded
-// size, the total size and the speed (compact: app icon and percentage). It is an ordinary OITI element (reason
-// "download-progress"), so the breadcrumb, the recovery window, the stack and swipe-to-dismiss all apply. It does not
-// expire on the notice timer: it ends when the downloads finish (a short "complete" state), when a limit is reached
-// (DownloadIdleAfterMB downloaded or DownloadIdleAfterSeconds on screen, 0 = never), or when it is dismissed. After a limit
-// or a dismissal it stays away until the next download starts; the download itself carries on. The tracker
-// (OITIDownloadUpdate / OITIDownloadFinish) takes bytes from any source and aggregates several downloads; the only
-// source so far is the test download started and stopped from the settings page (Darwin notifications
-// com.wilburt.oiti/TestDownloadStart and TestDownloadStop, size DownloadTestSizeMB). Apple Mode forces it off.
+// DOWNLOAD PROGRESS (stage 1, fake download only): key DownloadProgressEnabled (default off, Settings > OITI > Download
+// Progress). While a download is tracked, one of two looks (setting DownloadProgressStyle) shows a progress bar with the
+// downloaded size, the total size, the speed and the percentage. MINIMAL (default) is not an Apple element at all: it is a
+// black pill in a window of its own (OITIDownloadPill), placed over the Island (its rectangle is found in the Island's
+// window, with a computed fallback) with the Island's height kept empty at its top; its width, bottom padding and vertical
+// nudge are settings. DETAILED is an ordinary OITI Island element (reason "download-progress", expanded layout), so the
+// breadcrumb, the recovery window, the stack and swipe-to-dismiss apply to it; it needs preferredAlertingDuration: to answer
+// 24 h for it and has drop detection (see OITIDownloadsRefresh). Either look ends when the downloads finish (a short
+// "complete" state), when a limit is reached (DownloadIdleAfterMB downloaded or DownloadIdleAfterSeconds on screen, 0 =
+// never), or when it is swiped away. After a limit or a dismissal it stays away until the next download starts; the
+// download itself carries on. The tracker (OITIDownloadUpdate / OITIDownloadFinish) takes bytes from any source and
+// aggregates several downloads; the only source so far is the test download started and stopped from the settings page
+// (Darwin notifications com.wilburt.oiti/TestDownloadStart and TestDownloadStop, size DownloadTestSizeMB). Apple Mode
+// forces it off. Next: real sources (App Store installs first, then browsers).
 //
 // ELEMENT CRASH RECOVERY (UNTESTED): while any of OITI's Island elements (a notice or the startup Hello) is live, the
 // file OITILiveElement.plist exists; it is written just before the element is registered and deleted when the last one

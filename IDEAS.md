@@ -29,8 +29,8 @@
 - **Context awareness**: Island content adapts to foreground app (Maps -> nav controls,
   Spotify -> media controls). Needs a content mechanism first.
 - **Universal progress bars**: any app/tweak can expose a progress value the Island renders
-  generically. Precursor to a real plugin API. First use: **download progress** (stage 1 built on `experiments`, build
-  `OITI-exp-2026-10-21-d`, untested on-device, fake download only). Owner's decisions: downloads first; App Store and Safari
+  generically. Precursor to a real plugin API. First use: **download progress** (stage 1 appearance finished and working on the owner's phone, build
+  `OITI-exp-2026-10-21-j`, fake download only; next the App Store source, then browsers). Owner's decisions: downloads first; App Store and Safari
   as the first real targets, Chrome and Arc later (they need hooks inside each app); return to idle by MB downloaded and/or
   seconds on screen, user-chosen; off by default; a fake download for testing. Timers and other sources can use the same
   tracker later.
