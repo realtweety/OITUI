@@ -777,3 +777,68 @@ Steps:
 11. If the bar ever disappears on its own, `grep DOWNLOAD /tmp/OITIDebug.log` should show `the progress element left the screen after N s but nothing in OITI removed it, so the system ended it (drop 1 of 5)`, and the bar comes back after 1.5 s (then 4.5, 13.5 and 30 s on later drops, and it stops after five). Report that line and its time.
 
 Report: layout problems (clipped text, bar too tall or too short), a speed or size that looks wrong, anything that stays on screen after Stop, and any stutter in other Island animations while the bar updates.
+
+## 17. Install progress dump (†, build `OITI-exp-2026-10-24-a`)
+
+Download Progress stage 2, step 1: a read-only dump of what SpringBoard exposes about a real install. It does not change anything on screen and needs `DiagnosticsLevel` 1. Line format and how to read it: `DIAGNOSTICS.md`, "OITI install progress dump". The output carries the tag `INSTALL`.
+
+Set up once. Turn Auto-Lock off for the test (Settings > Display & Brightness > Auto-Lock > Never) so the screen stays on while the samples run, and keep the phone on the Home Screen page that shows the downloading icon.
+
+| Command | What it does | Where |
+| --- | --- | --- |
+| `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1` | Turns dumps on. | Phone |
+| `sbreload` | Applies it. Wait about 10 seconds afterwards. | Phone |
+| `defaults write com.wilburt.oiti.prefs InstallDumpSamples -int 6` | Samples after the snapshot (default 6, 0 to 30). | Phone |
+| `defaults write com.wilburt.oiti.prefs InstallDumpIntervalSeconds -float 2` | Seconds between samples (default 2, 1 to 10). | Phone |
+
+Define the helper once per SSH login (it is forgotten when you log out). It writes a label into the log and asks for one install dump:
+
+```
+installdump() { echo "$(date '+%m-%d %H:%M:%S') [MARK] $1" >> /tmp/OITIDebug.log; touch /tmp/OITIInstallDump.trigger; }
+```
+
+One run takes the snapshot at once and then the samples, so about 12 seconds with the defaults. Wait for `=== END` before the next run:
+
+```
+grep INSTALL /tmp/OITIDebug.log | tail -n 3
+```
+
+Runs, in this order. Use a big app (1 GB or more) so the download lasts. The `sleep 15;` form gives you time to go back to the Home Screen after pressing Enter; make sure the downloading icon is visible on the page you are on.
+
+| Command | Phone state | Where |
+| --- | --- | --- |
+| `installdump idle-nothing-installing` | Nothing downloading. A baseline to compare against. | Phone |
+| `sleep 15; installdump appstore-downloading-early` | An App Store download is running, a few percent in, icon visible on the Home Screen. | Phone |
+| `sleep 15; installdump appstore-downloading-later` | The same download, 20 percent or more further on. | Phone |
+| `sleep 15; installdump appstore-paused` | Tap the icon on the Home Screen to pause the download first. Resume it afterwards. | Phone |
+| `sleep 15; installdump appstore-installing` | Optional: the last moments, when the icon says Installing. | Phone |
+
+Later, the same way (use the label to say what it is): `appstore-update-downloading` for an app update (start it from the App Store Updates tab) and `testflight-installing` for a TestFlight install.
+
+Collect the result. The first command pulls out the useful lines; the second copies the file to the PC (it contains the names of the apps being installed, so read it before sharing):
+
+```
+grep -e MARK -e INSTALL /tmp/OITIDebug.log > /tmp/OITIInstall.txt
+```
+
+```
+scp -P 2222 root@127.0.0.1:/tmp/OITIInstall.txt ~/Downloads/OITIInstall.txt
+```
+
+For a short paste instead of the file (the verdicts and sample summaries only):
+
+```
+grep -e MARK -e "INSTALL.*VERDICT" -e "INSTALL.*SUMMARY" -e "INSTALL.*PROGRESS " /tmp/OITIDebug.log | tail -n 80
+```
+
+Other greps:
+
+| Command | What it shows | Where |
+| --- | --- | --- |
+| `grep "INSTALL.*CANDIDATE" /tmp/OITIDebug.log` | The apps, placeholders and icons that look like an install. | Phone |
+| `grep "INSTALL.*CLASSPROBE" /tmp/OITIDebug.log` | Which guessed classes exist and their progress-related methods. | Phone |
+| `grep "INSTALL.*ICONVIEW" /tmp/OITIDebug.log` | The Home Screen icon views that report progress. | Phone |
+| `grep "INSTALL.*HINT" /tmp/OITIDebug.log` | Says when no icon views were found (wrong page, or Home Screen not showing). | Phone |
+| `grep "INSTALL.*ERROR" /tmp/OITIDebug.log` | Any exception the dump caught. | Phone |
+
+If a run prints nothing, check `DiagnosticsLevel` first (`install dump request ignored` appears only for the notification, and the trigger file does nothing at level 0), then `grep SESSION /tmp/OITIDebug.log | tail -n 2`. When you are done, set the level back with `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0` and run `sbreload`. A second class query on whatever the dump finds works as before (section 6: put the class names in `/tmp/OITIClassQuery.txt`, then `dumpstate classq-X`).
