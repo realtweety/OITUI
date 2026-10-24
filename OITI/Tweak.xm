@@ -154,7 +154,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-21-d";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-21-j";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -233,6 +233,10 @@ static BOOL sDownloadProgressEnabled;          // DownloadProgressEnabled (defau
 static CGFloat sDownloadIdleAfterMB = 0;       // DownloadIdleAfterMB: return the Island to idle after this many MB downloaded, 0 = never
 static CGFloat sDownloadIdleAfterSeconds = 0;  // DownloadIdleAfterSeconds: the same after this long on screen, 0 = never
 static CGFloat sDownloadTestSizeMB = 800;      // DownloadTestSizeMB: size of the test download
+static NSInteger sDownloadStyle = 0;           // DownloadProgressStyle: 0 minimal (default), 1 detailed
+static CGFloat sDownloadPillWidth = 296;         // DownloadPillWidth: the Minimal pill, in points (never narrower than the Island plus a margin)
+static CGFloat sDownloadPillBottomPadding = 10;  // DownloadPillBottomPadding: space under the content
+static CGFloat sDownloadPillNudgeY = 0;          // DownloadPillNudgeY: moves the pill up or down from the Island's top
 static BOOL islandStartupHelloEnabled;        // OITI > Startup Animation prototype (default NO)
 static BOOL sStartupHelloObservationWindowOpen;
 static BOOL sStartupHelloActivitySeen;
@@ -390,7 +394,7 @@ static NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
         @"fixEnabled": @(fixEnabled), @"islandEnabled": @(islandEnabled), @"posEnabled": @(posEnabled),
         @"hideEnabled": @(hideEnabled), @"notificationFix": @(notificationFix), @"notEnabled": @(notEnabled),
         @"colorEnabled": @(colorEnabled), @"transEnabled": @(transEnabled), @"scaleEnabled": @(scaleEnabled), @"appleMode": @(sAppleMode), @"downloadProgress": @(sDownloadProgressEnabled),
-        @"downloadIdleMB": @(sDownloadIdleAfterMB), @"downloadIdleSeconds": @(sDownloadIdleAfterSeconds),
+        @"downloadStyle": @(sDownloadStyle), @"pillW": @(sDownloadPillWidth), @"pillBottom": @(sDownloadPillBottomPadding), @"pillNudge": @(sDownloadPillNudgeY), @"downloadIdleMB": @(sDownloadIdleAfterMB), @"downloadIdleSeconds": @(sDownloadIdleAfterSeconds),
         @"lineDisabled": @(lineDisabled),
         @"xPos": @(xPos), @"yPos": @(yPos), @"xNot": @(xNot), @"yNot": @(yNot),
         @"red": @(red), @"green": @(green), @"blue": @(blue), @"alpha": @(alpha), @"scaleX": @(scaleX), @"scaleY": @(scaleY),
@@ -1452,6 +1456,11 @@ static id sPendingNoticeRequest;   // the NCNotificationRequest being presented,
 static NSMutableDictionary *sStartupHelloItem;
 static NSMutableDictionary *sDownloadItem;   // the Island element showing download progress, or nil
 static CFAbsoluteTime sDownloadShownAt = 0;  // when it went up, for the time limit
+static NSUInteger sDownloadDropCount = 0;    // times the system ended the element on its own during this download
+// What Apple is told for "preferredAlertingDuration:" for a download element. Apple ends an alert after that long and
+// OITI is not told, so for a download it has to be far longer than any download (the notice duration, a few seconds,
+// is right only for notices).
+static const double kOITIDownloadAlertDuration = 86400.0;
 static void OITIDownloadItemRemoved(NSDictionary *item, NSString *reason);
 static const NSUInteger kOITINoticeStackLimit = 4;   // one expanded plus three compact, or four compact
 static void OITIDismissNoticeItem(NSDictionary *item);
@@ -1610,6 +1619,15 @@ static BOOL OITIIsOurElement(id element) {
     return NO;
 }
 
+// The item (notice, Hello or download) an element belongs to, or nil.
+static NSDictionary *OITIItemForElement(id element) {
+    if (!element) return nil;
+    for (NSDictionary *item in sIslandNoticeItems) {
+        if (item[@"element"] == element) return item;
+    }
+    return nil;
+}
+
 // The charging activity is an ordinary system aperture element. Let Hello play ahead of it,
 // then allow SpringBoard to promote charging after Hello is removed. Other system activities
 // (especially calls) keep the normal immediate-yield behavior.
@@ -1626,6 +1644,7 @@ static BOOL OITIIsNewestNoticeElement(id element) {
 }
 
 static BOOL OITIIsAlertNoticeElement(id element) {
+    if (OITIItemForElement(element)[@"download"]) return OITIIsNewestNoticeElement(element);   // wide or expanded, whatever the notification style is
     return OITINoticeStyle() != 0 && OITIIsNewestNoticeElement(element);
 }
 
@@ -1641,6 +1660,7 @@ static void OITIScheduleNoticeTimeout(NSMutableDictionary *item);
 static void OITISetNoticeLayout(NSDictionary *item, NSInteger style, BOOL isNewest) {
     id element = item[@"element"];
     if (!element) return;
+    if (item[@"download"]) style = 2;   // the Detailed download look is the expanded layout, whatever the notification style is
 
     BOOL compact = (style == 0) || !isNewest;
     NSInteger layoutVariant = compact ? 1 : (style == 1 ? 6 : 5);
@@ -1818,7 +1838,12 @@ static Class OITINoticeElementClass(void) {
         class_addMethod(created, NSSelectorFromString(@"hasIndicatorBehavior"),
                         imp_implementationWithBlock(^BOOL(id receiver) { return NO; }), "B16@0:8");
         class_addMethod(created, NSSelectorFromString(@"preferredAlertingDuration:"),
-                        imp_implementationWithBlock(^double(id receiver, double suggested) { return (double)sIslandNoticeDuration; }),
+                        imp_implementationWithBlock(^double(id receiver, double suggested) {
+                            // Apple ends an alert after this long without telling OITI. That suits a notice, which OITI
+                            // removes after the same time, but a download lasts as long as the download does.
+                            if (OITIItemForElement(receiver)[@"download"]) return kOITIDownloadAlertDuration;
+                            return (double)sIslandNoticeDuration;
+                        }),
                         "d24@0:8d16");
         objc_registerClassPair(created);
         elementClass = created;
@@ -1870,8 +1895,14 @@ static UIImage *OITIRoundedIcon(UIImage *image, CGFloat side) {
 @end
 
 // ---- Download progress element views ----------------------------------------------------------
+// Apple's system blue (#007AFF) for the bar, a tint of it for the track, system green when finished. The ends are
+// round: the corner radius is always half the bar height.
+static UIColor *OITIDownloadBlue(void) { return [UIColor colorWithRed:0.0 green:122.0 / 255.0 blue:1.0 alpha:1.0]; }
+static UIColor *OITIDownloadGreen(void) { return [UIColor colorWithRed:52.0 / 255.0 green:199.0 / 255.0 blue:89.0 / 255.0 alpha:1.0]; }
+
 @interface OITIProgressBarView : UIView
 @property (nonatomic, readonly) double fraction;
+@property (nonatomic, assign) CGFloat barHeight;   // default 6
 - (void)setFraction:(double)fraction animated:(BOOL)animated;
 - (void)setComplete:(BOOL)complete;
 @end
@@ -1881,21 +1912,25 @@ static UIImage *OITIRoundedIcon(UIImage *image, CGFloat side) {
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
-        self.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.22];
-        self.layer.cornerRadius = 3.0;
+        _barHeight = 6.0;
+        self.backgroundColor = [OITIDownloadBlue() colorWithAlphaComponent:0.28];
         self.layer.cornerCurve = kCACornerCurveContinuous;
         self.layer.masksToBounds = YES;
         _fill = [[UIView alloc] initWithFrame:CGRectZero];
-        _fill.backgroundColor = [UIColor systemBlueColor];
+        _fill.backgroundColor = OITIDownloadBlue();
+        _fill.layer.cornerCurve = kCACornerCurveContinuous;
         [self addSubview:_fill];
     }
     return self;
 }
 - (CGSize)intrinsicContentSize {
-    return CGSizeMake(UIViewNoIntrinsicMetric, 6.0);
+    return CGSizeMake(UIViewNoIntrinsicMetric, _barHeight);
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
+    CGFloat radius = self.bounds.size.height / 2.0;
+    self.layer.cornerRadius = radius;
+    _fill.layer.cornerRadius = radius;
     _fill.frame = CGRectMake(0, 0, self.bounds.size.width * _fraction, self.bounds.size.height);
 }
 - (void)setFraction:(double)fraction animated:(BOOL)animated {
@@ -1909,7 +1944,89 @@ static UIImage *OITIRoundedIcon(UIImage *image, CGFloat side) {
     }
 }
 - (void)setComplete:(BOOL)complete {
-    _fill.backgroundColor = complete ? [UIColor systemGreenColor] : [UIColor systemBlueColor];
+    _fill.backgroundColor = complete ? OITIDownloadGreen() : OITIDownloadBlue();
+}
+@end
+
+// The minimal look, on the WIDE layout. The same body for every download:
+//
+//          App Name - File Name
+//                212 MB
+//   9.4 MB/s [████████░░░░░░] 26%
+//                800 MB
+//
+// The bar is in the middle of the row with the speed on its left and the percentage on its right; the downloaded size is
+// centered above the bar and the total size centered below it. Everything is laid out from the view's bounds, so it
+// follows whatever width the Island gives it. The constants are the knobs for size and spacing.
+static const CGFloat kOITIMinimalWidth = 260.0;          // width it asks for
+static const CGFloat kOITIMinimalHeight = 56.0;          // height it asks for
+static const CGFloat kOITIMinimalSpeedWidth = 62.0;      // speed, left of the bar
+static const CGFloat kOITIMinimalPercentWidth = 36.0;    // percentage, right of the bar
+static const CGFloat kOITIMinimalGap = 6.0;
+static const CGFloat kOITIMinimalBarHeight = 7.0;
+
+@interface OITIMinimalDownloadView : UIView
+@property (nonatomic, readonly) OITIProgressBarView *bar;
+- (void)setHeader:(NSString *)header downloaded:(NSString *)downloaded total:(NSString *)total speed:(NSString *)speed
+          percent:(NSString *)percent fraction:(double)fraction complete:(BOOL)complete;
+@end
+
+@implementation OITIMinimalDownloadView {
+    UILabel *_header;
+    UILabel *_top;
+    UILabel *_bottom;
+    UILabel *_speed;
+    UILabel *_percent;
+}
+- (UILabel *)minimalLabelWithSize:(CGFloat)size weight:(UIFontWeight)weight alignment:(NSTextAlignment)alignment {
+    UILabel *label = [[UILabel alloc] init];
+    label.font = [UIFont monospacedDigitSystemFontOfSize:size weight:weight];
+    label.textColor = [UIColor colorWithWhite:1.0 alpha:0.9];
+    label.textAlignment = alignment;
+    label.numberOfLines = 1;
+    label.lineBreakMode = NSLineBreakByTruncatingTail;
+    label.adjustsFontSizeToFitWidth = YES;
+    label.minimumScaleFactor = 0.75;
+    label.text = @" ";
+    return label;
+}
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:CGRectMake(0, 0, kOITIMinimalWidth, kOITIMinimalHeight)])) {
+        _bar = [[OITIProgressBarView alloc] initWithFrame:CGRectZero];
+        _bar.barHeight = kOITIMinimalBarHeight;
+        _header = [self minimalLabelWithSize:11 weight:UIFontWeightSemibold alignment:NSTextAlignmentCenter];
+        _top = [self minimalLabelWithSize:10 weight:UIFontWeightMedium alignment:NSTextAlignmentCenter];
+        _bottom = [self minimalLabelWithSize:10 weight:UIFontWeightMedium alignment:NSTextAlignmentCenter];
+        _speed = [self minimalLabelWithSize:10 weight:UIFontWeightMedium alignment:NSTextAlignmentRight];
+        _percent = [self minimalLabelWithSize:10 weight:UIFontWeightMedium alignment:NSTextAlignmentLeft];
+        for (UIView *view in @[_header, _top, _bar, _bottom, _speed, _percent]) [self addSubview:view];
+    }
+    return self;
+}
+- (CGSize)intrinsicContentSize { return CGSizeMake(kOITIMinimalWidth, kOITIMinimalHeight); }
+- (CGSize)sizeThatFits:(CGSize)size { return CGSizeMake(kOITIMinimalWidth, kOITIMinimalHeight); }
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat width = self.bounds.size.width;
+    CGFloat barX = kOITIMinimalSpeedWidth + kOITIMinimalGap;
+    CGFloat barWidth = MAX(40.0, width - barX - kOITIMinimalGap - kOITIMinimalPercentWidth);
+    CGFloat rowCenter = 36.0;   // the row with the bar: header 13, gap 2, downloaded 12, gap 2, row 14, gap 1, total 12
+    _header.frame = CGRectMake(0, 0, width, 13);
+    _top.frame = CGRectMake(barX, 15, barWidth, 12);
+    _speed.frame = CGRectMake(0, rowCenter - 7, kOITIMinimalSpeedWidth, 14);
+    _bar.frame = CGRectMake(barX, rowCenter - kOITIMinimalBarHeight / 2.0, barWidth, kOITIMinimalBarHeight);
+    _percent.frame = CGRectMake(barX + barWidth + kOITIMinimalGap, rowCenter - 7, kOITIMinimalPercentWidth, 14);
+    _bottom.frame = CGRectMake(barX, 44, barWidth, 12);
+}
+- (void)setHeader:(NSString *)header downloaded:(NSString *)downloaded total:(NSString *)total speed:(NSString *)speed
+          percent:(NSString *)percent fraction:(double)fraction complete:(BOOL)complete {
+    if (![_header.text isEqualToString:header]) _header.text = header;
+    if (![_top.text isEqualToString:downloaded]) _top.text = downloaded;
+    if (![_bottom.text isEqualToString:total]) _bottom.text = total;
+    if (![_speed.text isEqualToString:speed]) _speed.text = speed;
+    if (![_percent.text isEqualToString:percent]) _percent.text = percent;
+    [_bar setComplete:complete];
+    [_bar setFraction:fraction animated:YES];
 }
 @end
 
@@ -2549,7 +2666,8 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
         OITIProgressBarView *downloadBar = nil;
         UILabel *downloadDetail = nil;
         if (downloadProgress) {
-            // Same icon and headline as a notice; the body is the progress bar and its text line.
+            // The Detailed look: the same icon and headline as a notice; the body is the bar and its text line.
+            // (The Minimal look is not an Apple element at all, see the download pill.)
             secondaryView = OITIBuildDownloadStack(&downloadBar, &downloadDetail);
             secondaryBody = nil;
             CGRect headlineFrame = primaryView.frame;
@@ -2611,7 +2729,7 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
         if (downloadProgress) {
             item[@"download"] = @YES;
             item[@"downloadBar"] = downloadBar;
-            item[@"downloadDetail"] = downloadDetail;
+            if (downloadDetail) item[@"downloadDetail"] = downloadDetail;
             item[@"timeoutDuration"] = @(365.0 * 24.0 * 3600.0);   // the download decides when this ends, not the notice timer
             sDownloadItem = item;
             sDownloadShownAt = CFAbsoluteTimeGetCurrent();
@@ -2765,36 +2883,285 @@ static NSDictionary *OITIDownloadSnapshot(void) {
     if (!sDownloads.count) return nil;
     double downloaded = 0, total = 0, speed = 0;
     BOOL totalKnown = YES;
-    NSString *title = nil, *bundleID = nil;
+    NSString *title = nil, *bundleID = nil, *appName = nil;
     for (NSDictionary *download in sDownloads.allValues) {
         downloaded += [download[@"downloaded"] doubleValue];
         double size = [download[@"total"] doubleValue];
         if (size > 0) total += size; else totalKnown = NO;
         speed += [download[@"speed"] doubleValue];
-        if (!title) { title = download[@"title"]; bundleID = download[@"bundleID"]; }
+        if (!title) { title = download[@"title"]; bundleID = download[@"bundleID"]; appName = download[@"appName"]; }
     }
     return @{ @"count": @(sDownloads.count), @"downloaded": @(downloaded), @"total": @(totalKnown ? total : 0.0),
-              @"speed": @(speed), @"title": title ?: @"Download", @"bundleID": bundleID ?: @"" };
+              @"speed": @(speed), @"title": title ?: @"Download", @"appName": appName ?: @"", @"bundleID": bundleID ?: @"" };
 }
 
-// Writes the snapshot into the element's views. complete shows the finished state.
+// ---- The Minimal look: OITI's own pill ----------------------------------------------------------
+// Apple's layouts cannot hold this design. The compact and wide layouts are two slots either side of the sensor (the
+// owner's screenshot of the wide build showed only the icon and the percentage, none of the body), and the expanded
+// layout adds the sensor row above its body. So the Minimal look is drawn by OITI: a black capsule in a window of its
+// own at the top centre, above the Island's window. Touches outside the pill fall through. Its width, height and
+// distance from the top are settings, so the size can be tuned on the phone without a rebuild. Portrait only.
+static void OITIDownloadPillSwiped(void);
+
+static UIWindowLevel OITIDownloadPillWindowLevel(void) {
+    UIWindowLevel level = UIWindowLevelAlert + 1000.0;
+    for (UIView *view in sLiveApertureWindows.allObjects) {
+        if ([view isKindOfClass:[UIWindow class]]) level = MAX(level, ((UIWindow *)view).windowLevel + 1.0);
+    }
+    return level;
+}
+
+// SpringBoard's windows belong to a window scene. A window created without one can be "visible" yet never drawn on
+// iOS 16, so the pill's window is built in the same scene as the Island's own window (the most reliable match), or in any
+// window scene the application knows.
+static UIWindowScene *OITIDownloadPillWindowScene(void) {
+    for (UIView *view in sLiveApertureWindows.allObjects) {
+        UIWindowScene *scene = [view isKindOfClass:[UIWindow class]] ? ((UIWindow *)view).windowScene : nil;
+        if (scene) return scene;
+    }
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if ([scene isKindOfClass:[UIWindowScene class]]) return (UIWindowScene *)scene;
+    }
+    return nil;
+}
+
+// ---- Where the Island is -------------------------------------------------------------------------
+// The pill covers the Island, so it needs the Island's rectangle on screen: its top, its height (the "sensor row" the pill
+// keeps clear at its own top, like the expanded Island) and its width and centre. The Island's own pill view
+// (SBSystemApertureContainerView, the rounded black shape) is looked for in the Island's windows and converted to screen
+// coordinates, which includes OITI's position and scale transforms. If none is on screen (the Island is idle and not
+// drawn on a phone without the hardware) or it looks wrong, the rectangle is computed from the stock idle size (125 x
+// 36.667 window units) times the Island Size sliders and the window's scale, and the top comes from a constant.
+static const CGFloat kOITIIslandStockWidth = 125.0;
+static const CGFloat kOITIIslandStockHeight = 36.667;
+static const CGFloat kOITIIslandFallbackTop = 11.0;
+
+static void OITICollectIslandRects(UIView *view, Class containerClass, NSUInteger depth, NSMutableArray<NSValue *> *rects) {
+    if (containerClass && [view isKindOfClass:containerClass]) {
+        if (!view.hidden && view.alpha > 0.01) {
+            CGRect rect = [[UIScreen mainScreen].coordinateSpace convertRect:view.bounds fromCoordinateSpace:view];
+            if (rect.size.width > 20.0 && rect.size.height > 10.0) [rects addObject:[NSValue valueWithCGRect:rect]];
+        }
+        return;   // not inside the pill
+    }
+    if (depth >= 8) return;
+    for (UIView *subview in view.subviews) OITICollectIslandRects(subview, containerClass, depth + 1, rects);
+}
+
+// Sets *rectOut to the Island pill in screen points and says where it came from.
+static void OITIIslandPillRect(CGRect *rectOut, NSString **sourceOut) {
+    CGSize screen = [UIScreen mainScreen].bounds.size;
+    Class containerClass = NSClassFromString(@"SBSystemApertureContainerView");
+    NSMutableArray<NSValue *> *rects = [NSMutableArray array];
+    CGFloat scaleX = 1.0, scaleY = 1.0;
+    BOOL haveScale = NO;
+    for (UIView *view in sLiveApertureWindows.allObjects) {
+        if (![view isKindOfClass:[UIWindow class]] || view.hidden) continue;
+        OITICollectIslandRects(view, containerClass, 0, rects);
+        if (!haveScale && view.transform.a > 0.1 && view.transform.d > 0.1) {
+            scaleX = view.transform.a;
+            scaleY = view.transform.d;
+            haveScale = YES;
+        }
+    }
+    CGFloat computedWidth = kOITIIslandStockWidth * sMetricsSensorX * scaleX;
+    CGFloat computedHeight = kOITIIslandStockHeight * sMetricsSensorY * scaleY;
+
+    // The topmost candidate (the widest if two start at the same height).
+    CGRect best = CGRectNull;
+    for (NSValue *value in rects) {
+        CGRect rect = value.CGRectValue;
+        if (CGRectIsNull(best) || rect.origin.y < best.origin.y - 1.0 ||
+            (fabs(rect.origin.y - best.origin.y) <= 1.0 && rect.size.width > best.size.width)) best = rect;
+    }
+    BOOL plausible = !CGRectIsNull(best) && best.size.width >= 60.0 && best.size.width <= screen.width - 20.0 &&
+                     best.origin.y >= -5.0 && best.origin.y <= 80.0 && best.size.height >= 20.0;
+    if (plausible) {
+        // An expanded Island is far taller than the sensor row; only its top and centre are of use then.
+        CGFloat height = best.size.height <= 80.0 ? best.size.height : computedHeight;
+        *rectOut = CGRectMake(best.origin.x, best.origin.y, best.size.width, height);
+        *sourceOut = [NSString stringWithFormat:@"the Island's pill view (%lu candidate%@)", (unsigned long)rects.count, rects.count == 1 ? @"" : @"s"];
+        return;
+    }
+    *rectOut = CGRectMake((screen.width - computedWidth) / 2.0, kOITIIslandFallbackTop, computedWidth, computedHeight);
+    *sourceOut = [NSString stringWithFormat:@"computed from the stock size (%lu candidates, none usable)", (unsigned long)rects.count];
+}
+
+@interface OITIDownloadPillController : UIViewController
+@end
+@implementation OITIDownloadPillController
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskPortrait; }
+@end
+
+@interface OITIDownloadPillWindow : UIWindow
+@end
+@implementation OITIDownloadPillWindow
+// Only the pill takes touches; everything else goes to whatever is underneath.
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit = [super hitTest:point withEvent:event];
+    return (hit == self || hit == self.rootViewController.view) ? nil : hit;
+}
+@end
+
+@interface OITIDownloadPill : NSObject
+@property (nonatomic, readonly) OITIMinimalDownloadView *content;
+@property (nonatomic, readonly) UIWindowLevel level;
+- (void)present;
+- (void)relayout;
+- (void)refreshOrientation;
+- (void)dismiss;
+@end
+
+@implementation OITIDownloadPill {
+    OITIDownloadPillWindow *_window;
+    UIView *_pill;
+    BOOL _dismissed;
+    NSString *_geometryNote;
+}
+- (CGAffineTransform)collapsedTransform {
+    // About a third of the height and half the width, kept at the top edge, like the Island growing from its idle size.
+    return CGAffineTransformMake(0.5, 0, 0, 0.35, 0, -_pill.bounds.size.height * 0.325);
+}
+- (instancetype)init {
+    if ((self = [super init])) {
+        UIWindowScene *scene = OITIDownloadPillWindowScene();
+        _window = scene ? [[OITIDownloadPillWindow alloc] initWithWindowScene:scene]
+                        : [[OITIDownloadPillWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        _window.backgroundColor = [UIColor clearColor];
+        OITIDownloadPillController *controller = [[OITIDownloadPillController alloc] init];
+        controller.view.backgroundColor = [UIColor clearColor];
+        _window.rootViewController = controller;
+        _level = OITIDownloadPillWindowLevel();
+        _window.windowLevel = _level;
+        _pill = [[UIView alloc] initWithFrame:CGRectZero];
+        _pill.backgroundColor = [UIColor blackColor];
+        _pill.layer.cornerCurve = kCACornerCurveContinuous;
+        _content = [[OITIMinimalDownloadView alloc] initWithFrame:CGRectZero];
+        [_pill addSubview:_content];
+        [controller.view addSubview:_pill];
+        UISwipeGestureRecognizer *swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swiped)];
+        swipe.direction = UISwipeGestureRecognizerDirectionUp;
+        [_pill addGestureRecognizer:swipe];
+        [self relayout];
+    }
+    return self;
+}
+- (void)swiped { OITIDownloadPillSwiped(); }
+// One line describing why the pill is or is not on screen. Written right after it is shown and again 0.8 s later.
+- (void)logState:(NSString *)when {
+    CALayer *shown = _pill.layer.presentationLayer;
+    [sLog logTag:@"DOWNLOAD" format:@"pill %@: window hidden=%d scene=%@ level=%.0f key=%d pillWindowMatches=%d pill hidden=%d alpha=%.2f onScreenFrame=%@ | %@",
+     when, _window.hidden, _window.windowScene ? NSStringFromClass([_window.windowScene class]) : @"none", (double)_window.windowLevel,
+     _window.isKeyWindow, _pill.window == _window, _pill.hidden, _pill.alpha, shown ? NSStringFromCGRect(shown.frame) : @"none",
+     _geometryNote ?: @"no geometry"];
+}
+- (void)relayout {
+    if (!CGAffineTransformIsIdentity(_pill.transform)) return;   // mid-animation: the next refresh will do it
+    CGSize screen = [UIScreen mainScreen].bounds.size;
+    CGRect island = CGRectZero;
+    NSString *source = nil;
+    OITIIslandPillRect(&island, &source);
+
+    // The pill starts at the Island's top, is centred on it and wide enough to cover it. Its top row is the Island's own
+    // height and stays empty (the sensor row of the expanded Island); the content sits under it.
+    CGFloat rowHeight = MAX(24.0, MIN(60.0, island.size.height));
+    CGFloat width = MAX(MAX(200.0, sDownloadPillWidth), island.size.width + 32.0);
+    width = MIN(width, screen.width - 16.0);
+    CGFloat centerX = CGRectGetMidX(island);
+    CGFloat x = MAX(8.0, MIN(screen.width - width - 8.0, centerX - width / 2.0));
+    CGFloat contentTop = rowHeight + 3.0;
+    CGFloat height = contentTop + kOITIMinimalHeight + sDownloadPillBottomPadding;
+    _pill.frame = CGRectMake(floor(x), island.origin.y + sDownloadPillNudgeY, width, height);
+    CGFloat radius = MIN(height / 2.0, MAX(rowHeight / 2.0 + 6.0, 22.0));
+    _pill.layer.cornerRadius = radius;
+    CGFloat padding = MAX(16.0, radius * 0.75);
+    _content.frame = CGRectMake(padding, contentTop, MAX(100.0, width - 2.0 * padding), kOITIMinimalHeight);
+    _geometryNote = [NSString stringWithFormat:@"island=%@ (%@) -> pill=%@", NSStringFromCGRect(island), source, NSStringFromCGRect(_pill.frame)];
+}
+- (void)refreshOrientation {
+    _pill.hidden = UIDeviceOrientationIsLandscape([UIDevice currentDevice].orientation);   // portrait only
+}
+- (void)present {
+    _dismissed = NO;
+    _window.hidden = NO;
+    [_window.rootViewController.view layoutIfNeeded];
+    _pill.alpha = 0.0;
+    _pill.transform = [self collapsedTransform];
+    [UIView animateWithDuration:0.5 delay:0 usingSpringWithDamping:0.78 initialSpringVelocity:0.4
+                        options:UIViewAnimationOptionBeginFromCurrentState
+                     animations:^{ self->_pill.alpha = 1.0; self->_pill.transform = CGAffineTransformIdentity; } completion:nil];
+    [self logState:@"shown"];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (!self->_dismissed) [self logState:@"0.8 s later"];
+    });
+}
+- (void)dismiss {
+    _dismissed = YES;
+    [UIView animateWithDuration:0.28 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseIn
+                     animations:^{ self->_pill.alpha = 0.0; self->_pill.transform = [self collapsedTransform]; }
+                     completion:^(BOOL finished) { if (self->_dismissed) self->_window.hidden = YES; }];
+}
+@end
+
+static OITIDownloadPill *sDownloadPill;   // the Minimal look, while it is on screen
+
+static void OITIDownloadPillPresent(NSDictionary *snapshot) {
+    OITIDownloadPill *pill = [[OITIDownloadPill alloc] init];
+    sDownloadPill = pill;
+    sDownloadShownAt = CFAbsoluteTimeGetCurrent();
+    [pill present];
+    [sLog logTag:@"DOWNLOAD" format:@"progress pill up for %@ (window level %.0f)", snapshot[@"title"], (double)pill.level];
+}
+
+static void OITIDownloadPillDismiss(NSString *reason) {
+    OITIDownloadPill *pill = sDownloadPill;
+    if (!pill) return;
+    sDownloadPill = nil;
+    [pill dismiss];
+    [sLog logTag:@"DOWNLOAD" format:@"progress pill dismissed (%@)", reason];
+}
+
+// A swipe up: gone, and it stays away until the next download starts.
+static void OITIDownloadPillSwiped(void) {
+    sDownloadCollapsed = YES;
+    OITIDownloadPillDismiss(@"swipe");
+}
+
+// "App Name - File Name" for one download, "N downloads" for several.
+static NSString *OITIDownloadHeaderText(NSDictionary *snapshot) {
+    NSUInteger count = [snapshot[@"count"] unsignedIntegerValue];
+    if (count > 1) return [NSString stringWithFormat:@"%lu downloads", (unsigned long)count];
+    NSString *appName = snapshot[@"appName"];
+    NSString *title = snapshot[@"title"];
+    return appName.length ? [NSString stringWithFormat:@"%@ - %@", appName, title] : title;
+}
+
+// Writes the snapshot into whichever look is showing. complete shows the finished state.
 static void OITIDownloadUpdateViews(NSDictionary *snapshot, BOOL complete) {
     NSDictionary *item = sDownloadItem;
-    if (!item || !snapshot) return;
-    OITIProgressBarView *bar = item[@"downloadBar"];
-    UILabel *detail = item[@"downloadDetail"];
-    UILabel *headline = (UILabel *)item[@"primaryView"];
-    UILabel *trailing = (UILabel *)item[@"trailingView"];
+    OITIMinimalDownloadView *minimal = sDownloadPill.content;
+    if ((!item && !minimal) || !snapshot) return;
     double downloaded = [snapshot[@"downloaded"] doubleValue];
     double total = [snapshot[@"total"] doubleValue];
     double speed = [snapshot[@"speed"] doubleValue];
-    NSUInteger count = [snapshot[@"count"] unsignedIntegerValue];
     double fraction = complete ? 1.0 : (total > 0 ? downloaded / total : 0.0);
+    NSString *percent = (total > 0 || complete) ? [NSString stringWithFormat:@"%d%%", (int)floor(fraction * 100.0 + 0.0001)] : @"…";
+    NSString *header = OITIDownloadHeaderText(snapshot);
 
-    if ([headline isKindOfClass:[UILabel class]]) {
-        NSString *text = count > 1 ? [NSString stringWithFormat:@"%lu downloads", (unsigned long)count] : snapshot[@"title"];
-        if (![headline.text isEqualToString:text]) headline.text = text;
+    if (minimal) {
+        [minimal setHeader:header
+                downloaded:OITIDownloadBytesText(complete && total > 0 ? total : downloaded)
+                     total:total > 0 ? OITIDownloadBytesText(total) : @"?"
+                     speed:complete ? @"Done" : [NSString stringWithFormat:@"%@/s", OITIDownloadBytesText(speed)]
+                   percent:percent fraction:fraction complete:complete];
+        [sDownloadPill refreshOrientation];
+        return;
     }
+    UILabel *trailing = (UILabel *)item[@"trailingView"];
+    OITIProgressBarView *bar = item[@"downloadBar"];
+    UILabel *detail = item[@"downloadDetail"];
+    UILabel *headline = (UILabel *)item[@"primaryView"];
+    if ([headline isKindOfClass:[UILabel class]] && ![headline.text isEqualToString:header]) headline.text = header;
     NSString *detailText;
     if (complete) {
         detailText = [NSString stringWithFormat:@"Download complete · %@", OITIDownloadBytesText(downloaded)];
@@ -2805,15 +3172,12 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, BOOL complete) {
         detailText = [NSString stringWithFormat:@"%@ · %@/s", OITIDownloadBytesText(downloaded), OITIDownloadBytesText(speed)];
     }
     if (![detail.text isEqualToString:detailText]) detail.text = detailText;
-    if ([trailing isKindOfClass:[UILabel class]]) {
-        NSString *percent = (total > 0 || complete) ? [NSString stringWithFormat:@"%d%%", (int)floor(fraction * 100.0 + 0.0001)] : @"…";
-        if (![trailing.text isEqualToString:percent]) {
-            trailing.text = percent;
-            [trailing sizeToFit];
-        }
-    }
     [bar setComplete:complete];
     [bar setFraction:fraction animated:YES];
+    if ([trailing isKindOfClass:[UILabel class]] && ![trailing.text isEqualToString:percent]) {
+        trailing.text = percent;
+        [trailing sizeToFit];
+    }
 }
 
 static void OITIDownloadsEnsureTimer(void);
@@ -2823,6 +3187,7 @@ static void OITIFakeDownloadAdvance(void);
 static void OITIDownloadsRefresh(void) {
     if (!sDownloadProgressEnabled) {
         if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"feature-disabled");
+        OITIDownloadPillDismiss(@"feature-disabled");
         return;
     }
     NSDictionary *snapshot = OITIDownloadSnapshot();
@@ -2830,7 +3195,8 @@ static void OITIDownloadsRefresh(void) {
     sDownloadCompleteGeneration++;   // a pending "complete" removal no longer applies
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
 
-    if (sDownloadItem) {
+    // Return to idle by size or by time, whichever look is showing.
+    if (sDownloadItem || sDownloadPill) {
         double limitBytes = sDownloadIdleAfterMB * 1000.0 * 1000.0;   // decimal MB, like the size text
         BOOL byBytes = limitBytes > 0 && [snapshot[@"downloaded"] doubleValue] >= limitBytes;
         BOOL byTime = sDownloadIdleAfterSeconds > 0 && now - sDownloadShownAt >= sDownloadIdleAfterSeconds;
@@ -2839,13 +3205,50 @@ static void OITIDownloadsRefresh(void) {
              byBytes ? [NSString stringWithFormat:@"%@ downloaded", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue])]
                      : [NSString stringWithFormat:@"%.0f s on screen", (double)(now - sDownloadShownAt)]];
             sDownloadCollapsed = YES;
-            OITIRemoveNoticeItem(sDownloadItem, @"download-limit");
+            if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"download-limit");
+            OITIDownloadPillDismiss(@"download-limit");
             return;
+        }
+    }
+
+    if (sDownloadStyle == 0) {
+        // Minimal: OITI's own pill. Nothing of the Apple element is used.
+        if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"restyle");
+        if (!sDownloadPill && !sDownloadCollapsed && now >= sDownloadNextPresentAttempt) OITIDownloadPillPresent(snapshot);
+        OITIDownloadUpdateViews(snapshot, NO);
+        return;
+    }
+    OITIDownloadPillDismiss(@"restyle");
+
+    // Detailed: the Apple element.
+    if (sDownloadItem) {
+        // The system can end an element on its own (its alert timer) without telling OITI. If the bar was on screen and
+        // should still be the one showing but its views have left the window, record that and put it back. At most
+        // five times per download, so a system that keeps ending it can never make the bar flicker forever.
+        UIView *probe = sDownloadItem[@"downloadBar"];
+        if (probe && sIslandNoticeItems.lastObject == sDownloadItem) {
+            if (probe.window) {
+                sDownloadItem[@"downloadSeenOnScreen"] = @YES;
+            } else if ([sDownloadItem[@"downloadSeenOnScreen"] boolValue]) {
+                sDownloadDropCount++;
+                [sLog logTag:@"DOWNLOAD" format:@"the progress element left the screen after %.0f s but nothing in OITI removed it, so the system ended it (drop %lu of 5)",
+                 (double)(now - sDownloadShownAt), (unsigned long)sDownloadDropCount];
+                if (sDownloadDropCount >= 5) {
+                    sDownloadCollapsed = YES;
+                    [sLog logTag:@"DOWNLOAD" format:@"giving up on putting the progress element back for this download"];
+                } else {
+                    // Wait longer after every drop (1.5, 4.5, 13.5, 30 s): if something else really took the Island over,
+                    // such as a call, the bar should not keep pushing back in.
+                    sDownloadNextPresentAttempt = now + MIN(30.0, 1.5 * pow(3.0, (double)(sDownloadDropCount - 1)));
+                }
+                OITIRemoveNoticeItem(sDownloadItem, @"system-dismissed");
+                return;
+            }
         }
     } else if (!sDownloadCollapsed && now >= sDownloadNextPresentAttempt) {
         NSString *message = [NSString stringWithFormat:@"%@ of %@", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue]),
                              [snapshot[@"total"] doubleValue] > 0 ? OITIDownloadBytesText([snapshot[@"total"] doubleValue]) : @"?"];
-        NSDictionary *info = @{ @"bundleID": snapshot[@"bundleID"], @"appName": @"Downloads", @"title": snapshot[@"title"], @"message": message };
+        NSDictionary *info = @{ @"bundleID": snapshot[@"bundleID"], @"appName": snapshot[@"appName"], @"title": snapshot[@"title"], @"message": message };
         if (OITIPresentNoticeElement(info, @"download-progress")) {
             [sLog logTag:@"DOWNLOAD" format:@"progress element up for %@", snapshot[@"title"]];
         } else {
@@ -2859,7 +3262,8 @@ static void OITIDownloadsRefresh(void) {
 // anything else (a swipe, a notification replacing it, stack capacity) keeps it away until the next download starts.
 static void OITIDownloadItemRemoved(NSDictionary *item, NSString *reason) {
     sDownloadItem = nil;
-    NSArray<NSString *> *ours = @[@"download-limit", @"download-complete", @"download-cancelled", @"feature-disabled"];
+    NSArray<NSString *> *ours = @[@"download-limit", @"download-complete", @"download-cancelled", @"feature-disabled",
+                                  @"restyle", @"system-dismissed"];
     if (![ours containsObject:reason]) {
         sDownloadCollapsed = YES;
         [sLog logTag:@"DOWNLOAD" format:@"progress element removed (%@): it stays away until the next download starts", reason];
@@ -2867,7 +3271,7 @@ static void OITIDownloadItemRemoved(NSDictionary *item, NSString *reason) {
 }
 
 // Sources call this with the bytes so far. total is 0 when unknown. Speed is smoothed from the byte deltas.
-static void OITIDownloadUpdate(NSString *identifier, NSString *title, NSString *bundleID, double downloaded, double total) {
+static void OITIDownloadUpdate(NSString *identifier, NSString *appName, NSString *title, NSString *bundleID, double downloaded, double total) {
     if (!identifier.length) return;
     if (!sDownloads) sDownloads = [NSMutableDictionary dictionary];
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
@@ -2880,10 +3284,12 @@ static void OITIDownloadUpdate(NSString *identifier, NSString *title, NSString *
         download[@"lastTime"] = @(now);
         sDownloadCollapsed = NO;   // a new download brings the element back
         sDownloadNextPresentAttempt = 0;
+        sDownloadDropCount = 0;
         [sLog logTag:@"DOWNLOAD" format:@"started %@ (%@), total %@", identifier, title ?: @"?",
          total > 0 ? OITIDownloadBytesText(total) : @"unknown"];
     }
     download[@"title"] = title.length ? title : @"Download";
+    download[@"appName"] = appName ?: @"";
     download[@"bundleID"] = bundleID ?: @"";
     download[@"total"] = @(MAX(0.0, total));
     download[@"downloaded"] = @(MAX(0.0, downloaded));
@@ -2914,16 +3320,18 @@ static void OITIDownloadFinish(NSString *identifier, BOOL completed) {
         OITIDownloadsRefresh();
         return;
     }
-    if (!sDownloadItem) return;
+    if (!sDownloadItem && !sDownloadPill) return;
     if (!completed) {
-        OITIRemoveNoticeItem(sDownloadItem, @"download-cancelled");
+        if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"download-cancelled");
+        OITIDownloadPillDismiss(@"download-cancelled");
         return;
     }
     OITIDownloadUpdateViews(finalSnapshot, YES);
     NSUInteger generation = ++sDownloadCompleteGeneration;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (generation == sDownloadCompleteGeneration && sDownloadItem && !sDownloads.count) {
-            OITIRemoveNoticeItem(sDownloadItem, @"download-complete");
+        if (generation == sDownloadCompleteGeneration && !sDownloads.count) {
+            if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"download-complete");
+            OITIDownloadPillDismiss(@"download-complete");
         }
     });
 }
@@ -2950,7 +3358,12 @@ static NSString * const kOITIFakeDownloadIdentifier = @"oiti.test-download";
 
 static void OITIFakeDownloadStart(void) {
     if (sFakeDownloadActive) {
-        [sLog logTag:@"DOWNLOAD" format:@"test download is already running"];
+        // Already running: Start brings a bar that was dismissed or timed out back.
+        [sLog logTag:@"DOWNLOAD" format:@"test download is already running; showing the bar again"];
+        sDownloadCollapsed = NO;
+        sDownloadNextPresentAttempt = 0;
+        sDownloadDropCount = 0;
+        OITIDownloadsRefresh();
         return;
     }
     CGFloat sizeMB = isfinite(sDownloadTestSizeMB) ? MAX(50.0, MIN(5000.0, sDownloadTestSizeMB)) : 800.0;
@@ -2961,7 +3374,7 @@ static void OITIFakeDownloadStart(void) {
     sFakeDownloadActive = YES;
     [sLog logTag:@"DOWNLOAD" format:@"test download started: %@ (Download Progress is %@)", OITIDownloadBytesText(sFakeDownloadTotal),
      sDownloadProgressEnabled ? @"on" : @"OFF, so nothing will show"];
-    OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"Test Download", @"com.apple.AppStore", 0, sFakeDownloadTotal);
+    OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"App Store", @"Test Download", @"com.apple.AppStore", 0, sFakeDownloadTotal);
 }
 
 // Called from the tracker's timer: moves the simulated bytes along with a speed that drifts between 2 and 28 MB/s.
@@ -2975,11 +3388,11 @@ static void OITIFakeDownloadAdvance(void) {
     sFakeDownloadBytes = MIN(sFakeDownloadTotal, sFakeDownloadBytes + sFakeDownloadSpeed * dt);
     if (sFakeDownloadBytes >= sFakeDownloadTotal) {
         sFakeDownloadActive = NO;
-        OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"Test Download", @"com.apple.AppStore", sFakeDownloadTotal, sFakeDownloadTotal);
+        OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"App Store", @"Test Download", @"com.apple.AppStore", sFakeDownloadTotal, sFakeDownloadTotal);
         OITIDownloadFinish(kOITIFakeDownloadIdentifier, YES);
         return;
     }
-    OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"Test Download", @"com.apple.AppStore", sFakeDownloadBytes, sFakeDownloadTotal);
+    OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"App Store", @"Test Download", @"com.apple.AppStore", sFakeDownloadBytes, sFakeDownloadTotal);
 }
 
 static void OITIFakeDownloadStop(void) {
@@ -3242,6 +3655,7 @@ static void OITIInstallPromotionGuard(void) {
             NSArray<NSDictionary *> *items = [sIslandNoticeItems copy];
             [sIslandNoticeItems removeAllObjects];
             for (NSDictionary *item in items) OITIDismissNoticeItem(item);
+            if (sDownloadItem) OITIDownloadItemRemoved(sDownloadItem, @"promotion-guard");
             OITIClearElementBreadcrumb();   // the exception was caught and the elements dismissed: SpringBoard is fine
         }
     });
@@ -3783,6 +4197,15 @@ static void preferencesChanged(void) {
     sDownloadIdleAfterMB = isfinite(downloadIdleMB) ? MAX(0.0, MIN(5000.0, downloadIdleMB)) : 0.0;
     CGFloat downloadIdleSeconds = [sOITIPreferences floatForKey:@"DownloadIdleAfterSeconds" default:0.0];
     sDownloadIdleAfterSeconds = isfinite(downloadIdleSeconds) ? MAX(0.0, MIN(900.0, downloadIdleSeconds)) : 0.0;
+    NSInteger downloadPreviousStyle = sDownloadStyle;
+    sDownloadStyle = (NSInteger)lround([sOITIPreferences floatForKey:@"DownloadProgressStyle" default:0.0]) == 1 ? 1 : 0;
+    CGFloat pillWidth = [sOITIPreferences floatForKey:@"DownloadPillWidth" default:296.0];
+    sDownloadPillWidth = isfinite(pillWidth) ? MAX(200.0, MIN(380.0, pillWidth)) : 296.0;
+    CGFloat pillBottom = [sOITIPreferences floatForKey:@"DownloadPillBottomPadding" default:10.0];
+    sDownloadPillBottomPadding = isfinite(pillBottom) ? MAX(0.0, MIN(40.0, pillBottom)) : 10.0;
+    CGFloat pillNudge = [sOITIPreferences floatForKey:@"DownloadPillNudgeY" default:0.0];
+    sDownloadPillNudgeY = isfinite(pillNudge) ? MAX(-30.0, MIN(30.0, pillNudge)) : 0.0;
+    dispatch_async(dispatch_get_main_queue(), ^{ [sDownloadPill relayout]; });   // live size changes
     CGFloat downloadTestMB = [sOITIPreferences floatForKey:@"DownloadTestSizeMB" default:800.0];
     sDownloadTestSizeMB = isfinite(downloadTestMB) ? MAX(50.0, MIN(5000.0, downloadTestMB)) : 800.0;
 
@@ -3804,8 +4227,14 @@ static void preferencesChanged(void) {
         islandStartupHelloEnabled = NO;
         sDownloadProgressEnabled = NO;
     }
-    if (sDownloadProgressEnabled != downloadProgressWasEnabled) {
-        dispatch_async(dispatch_get_main_queue(), ^{ OITIDownloadsRefresh(); });   // present or remove the element for the new setting
+    if (sDownloadProgressEnabled != downloadProgressWasEnabled || sDownloadStyle != downloadPreviousStyle) {
+        BOOL restyle = sDownloadStyle != downloadPreviousStyle;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            // A new look needs a new view, so the old one is removed and the refresh presents the next.
+            if (restyle && sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"restyle");
+            if (restyle) OITIDownloadPillDismiss(@"restyle");
+            OITIDownloadsRefresh();   // present or remove the view for the new setting
+        });
     }
     if (sAppleMode != appleModeWasOn && sLog) {
         [sLog logTag:@"PREF" format:@"Apple Mode %@: Island customizations are %@", sAppleMode ? @"ON" : @"OFF",

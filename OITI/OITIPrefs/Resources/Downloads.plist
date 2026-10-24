@@ -32,6 +32,114 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
+        <string>Look</string>
+        <key>footerText</key>
+        <string>Minimal draws its own pill: a header with the app and file name, the downloaded size above the bar, the total below it, the speed on the left and the percentage on the right. Detailed is the system's expanded Island with the name and one line of text under a bar.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSLinkListCell</string>
+        <key>detail</key>
+        <string>PSListItemsController</string>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadProgressStyle</string>
+        <key>default</key>
+        <integer>0</integer>
+        <key>label</key>
+        <string>Style</string>
+        <key>validTitles</key>
+        <array>
+          <string>Minimal</string>
+          <string>Detailed</string>
+        </array>
+        <key>validValues</key>
+        <array>
+          <integer>0</integer>
+          <integer>1</integer>
+        </array>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Minimal Size</string>
+        <key>footerText</key>
+        <string>The Minimal pill finds the Island and sits over it, with the Island's own height kept clear at its top. Width is the pill's width (it is never narrower than the Island plus a margin), Bottom padding is the space under the content, and Move up or down nudges it from the Island's top. Changes apply while the pill is showing, so start a test download and adjust.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Width</string>
+        <key>default</key>
+        <real>296.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadPillWidth</string>
+        <key>min</key>
+        <real>200.0</real>
+        <key>max</key>
+        <real>380.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f pt</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Bottom padding</string>
+        <key>default</key>
+        <real>10.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadPillBottomPadding</string>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>40.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f pt</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Move up or down</string>
+        <key>default</key>
+        <real>0.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadPillNudgeY</string>
+        <key>min</key>
+        <real>-30.0</real>
+        <key>max</key>
+        <real>30.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f pt</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
         <string>Return to Idle</string>
         <key>footerText</key>
         <string>The expanded Island goes back to idle when either limit is reached. Never means no limit. The download itself carries on, and the progress bar comes back when the next download starts. Swiping the bar away does the same.</string>

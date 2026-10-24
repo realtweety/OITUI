@@ -16,6 +16,12 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 // first: it holds the same version string as the installed .deb ("0.2.0", or "0.2.0-1+debug" for a debug build). The
 // Settings process may not be allowed to read it, so the version baked into this bundle at build time (from the
 // control file) is the fallback and is marked as built-in. Read once and kept.
+// Keys for the two things a choice row keeps on its button. They must differ: with one shared key the second store
+// replaced the first, and picking a value then sent setText: to the specifier instead of the label (a crash in
+// Settings, present since the choice rows were added).
+static const void *kOITIChoiceLabelKey = &kOITIChoiceLabelKey;
+static const void *kOITIChoiceSpecifierKey = &kOITIChoiceSpecifierKey;
+
 static NSString *OITIInstalledVersionText(void) {
     static NSString *text;
     static dispatch_once_t once;
@@ -641,7 +647,7 @@ static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
     UIStackView *row = [[UIStackView alloc] initWithFrame:CGRectZero]; row.axis = UILayoutConstraintAxisHorizontal; row.spacing = 8;
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero]; title.text = [specifier propertyForKey:@"label"]; title.textColor = UIColor.labelColor; title.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
     UILabel *current = [[UILabel alloc] initWithFrame:CGRectZero]; current.textColor = UIColor.secondaryLabelColor; current.textAlignment = NSTextAlignmentRight; current.font = [UIFont systemFontOfSize:13];
-    objc_setAssociatedObject(button, @selector(oitiChooseValue:), current, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(button, kOITIChoiceLabelKey, current, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     NSArray *values = [specifier propertyForKey:@"validValues"] ?: @[]; NSArray *titles = [specifier propertyForKey:@"validTitles"] ?: values;
     id selected = [self readPreferenceValue:specifier] ?: [specifier propertyForKey:@"default"];
     NSUInteger index = [values indexOfObject:selected]; current.text = index < titles.count ? titles[index] : @"Choose";
@@ -651,19 +657,19 @@ static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
     row.translatesAutoresizingMaskIntoConstraints = NO; [button addSubview:row];
     [NSLayoutConstraint activateConstraints:@[[row.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:15],[row.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-15],[row.topAnchor constraintEqualToAnchor:button.topAnchor constant:15],[row.bottomAnchor constraintEqualToAnchor:button.bottomAnchor constant:-15]]];
     [button addTarget:self action:@selector(oitiChooseValue:) forControlEvents:UIControlEventTouchUpInside];
-    objc_setAssociatedObject(button, @selector(oitiChooseValue:), specifier, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(button, kOITIChoiceSpecifierKey, specifier, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return button;
 }
 
 - (void)oitiChooseValue:(UIButton *)sender {
-    PSSpecifier *specifier = objc_getAssociatedObject(sender, @selector(oitiChooseValue:));
+    PSSpecifier *specifier = objc_getAssociatedObject(sender, kOITIChoiceSpecifierKey);
     NSArray *values = [specifier propertyForKey:@"validValues"] ?: @[]; NSArray *titles = [specifier propertyForKey:@"validTitles"] ?: values;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[specifier propertyForKey:@"label"] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     for (NSUInteger i = 0; i < values.count; i++) {
         id value = values[i];
         [sheet addAction:[UIAlertAction actionWithTitle:(i < titles.count ? titles[i] : [value description]) style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
             [self setPreferenceValue:value specifier:specifier];
-            UILabel *current = objc_getAssociatedObject(sender, @selector(oitiChooseValue:));
+            UILabel *current = objc_getAssociatedObject(sender, kOITIChoiceLabelKey);
             current.text = i < titles.count ? titles[i] : [value description];
         }]];
     }

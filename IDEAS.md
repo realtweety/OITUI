@@ -29,7 +29,11 @@
 - **Context awareness**: Island content adapts to foreground app (Maps -> nav controls,
   Spotify -> media controls). Needs a content mechanism first.
 - **Universal progress bars**: any app/tweak can expose a progress value the Island renders
-  generically. Precursor to a real plugin API. Needs a content mechanism first.
+  generically. Precursor to a real plugin API. First use: **download progress** (stage 1 built on `experiments`, build
+  `OITI-exp-2026-10-21-d`, untested on-device, fake download only). Owner's decisions: downloads first; App Store and Safari
+  as the first real targets, Chrome and Arc later (they need hooks inside each app); return to idle by MB downloaded and/or
+  seconds on screen, user-chosen; off by default; a fake download for testing. Timers and other sources can use the same
+  tracker later.
 - **OITUI App**: Make a whole new app specifically for customizing OITUI tweaks like OITI and OITS. I would probably add in some sort of live preview to show the user what their settings would look like before they apply everything. It would essentially just move OITUI tweak customization from Settings to a dedicated app
 - **Volume Slider**: It might be a cool idea to try and move the volume slider into the dynamic island somehow, maybe do the same thing with other sliders and indicators and whatnot.
   **Note:** the tweak Crescendo (github.com/Yves000/Crescendo, GPL-3.0) already does this for the expanded media player by
@@ -99,6 +103,8 @@ on-device measurement, not before.
 - Next research step (done in October 2026): the element route was chosen and works. Notes: `LEARNINGS.md`, "Island elements".
 
 ## Infrastructure ideas (from the OITI review and Crescendo)
+
+- **Split `Tweak.xm` into module folders** (owner's idea, to do after the current testing round): for example `OITI/Download Progress/`, `OITI/Resizing/`, `OITI/Notifications/`, `OITI/Startup/`, with a small shared core for logging, preferences and the element machinery. Folder names with spaces are fine for Theos but a nuisance in shell commands, so `DownloadProgress/` is probably better. The work is mostly moving code without changing behavior, which makes it risky in one big step: do it one module at a time with a build and a short device check after each, starting with the most self-contained one (the download tracker and its views, which only touch the element presenter through two calls). The file list lives in `OITI/Makefile` (`OITI_FILES`), and Logos `%hook` groups can sit in `.xm` files in any folder.
 
 - **Respring-loop safe mode**: auto-disable OITI features after repeated respring cycles in a short window.
 - **Startup self-check** for the MobileGestalt spoof: log when `islandEnabled` is on but the cache no longer holds the spoofed value.

@@ -169,6 +169,10 @@ The native provider `auto` returns comes from, in order: the record the phone wr
 
 Steps and commands: `COMMANDS.md`, section 12.
 
+### OITI download progress (DOWNLOAD, untested, build `OITI-exp-2026-10-21-d`)
+
+Level 0 lines, all rare: `DOWNLOAD started <id> (<title>), total <size>`, `progress element up for <title>`, `limit reached (<size> downloaded | N s on screen): the Island returns to idle, the download carries on`, `finished <id>` / `cancelled <id>`, `progress element removed (<reason>): it stays away until the next download starts` (a swipe, a notification replacing it, or stack capacity), and `test download started: <size> (Download Progress is on | OFF, so nothing will show)`. Presenting goes through the normal element path, so `ELEMENT` lines (registered, `RECOVERY`, the breadcrumb) also appear. If the element cannot be presented (no manager seen yet, recovery window, creation failure) the tracker retries every 10 s instead of every tick. `the progress element left the screen after N s but nothing in OITI removed it, so the system ended it (drop N of 5)` means Apple ended the element on its own (its alert timer, or something taking over the Island); the tracker puts it back after 1.5, 4.5, 13.5 and 30 s on successive drops and logs `giving up on putting the progress element back for this download` after five. The alert timer is answered by `preferredAlertingDuration:`, which returns 24 hours for a download element and the notice duration for everything else, so this line should not appear in normal use. Per-tick progress is not logged.
+
 ### OITI Island Notifications and Startup Animation (NOTIF, ELEMENT and HELLO, 0.2.0)
 
 Two tags cover the feature. `NOTIF` is the banner hook and the stock banner. `ELEMENT` is the Island element's life. At level 0 only the install lines and failures are written (so a bug report always has them); everything else needs level 1.

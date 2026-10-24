@@ -186,15 +186,15 @@
 	      <key>label</key>
 	      <string>Notifications</string>
       </dict>
-        <dict>
-        <key>cell</key>
-        <string>PSLinkCell</string>
-        <key>detail</key>
-        <string>OITIDownloadsListController</string>
-        <key>isController</key>
-        <true/>
-        <key>label</key>
-        <string>Download Progress</string>
+      <dict>
+	      <key>cell</key>
+	      <string>PSLinkCell</string>
+	      <key>detail</key>
+	      <string>OITIDownloadsListController</string>
+	      <key>isController</key>
+	      <true/>
+	      <key>label</key>
+	      <string>Download Progress</string>
       </dict>
       <dict>
 	      <key>cell</key>
