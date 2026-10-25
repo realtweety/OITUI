@@ -132,7 +132,7 @@
 // Class query:   put class names, one per line, in /tmp/OITIClassQuery.txt before triggering a dump
 // Install dump:  touch /tmp/OITIInstallDump.trigger  (or Darwin notification com.wilburt.oiti/InstallDump). Read-only look at
 //                what SpringBoard exposes about an install in progress (INSTALL tag, needs DiagnosticsLevel >= 1; see the
-//                section "Install progress dump" below and DIAGNOSTICS.md). Untested, build OITI-exp-2026-10-24-b (build -a crashed SpringBoard, see "Install progress dump").
+//                section "Install progress dump" below and DIAGNOSTICS.md). Untested, build OITI-exp-2026-10-24-c (build -a crashed SpringBoard, -b ran fine; see "Install progress dump").
 // Clear safe mode: the banner on any OITI settings page, or rm /var/mobile/Library/Preferences/OITISafeMode.plist
 //                (or notification com.wilburt.oiti/ClearSafeMode), then respring
 // Prefs keys (domain com.wilburt.oiti.prefs, set with `defaults write`, no UI yet):
@@ -165,7 +165,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-24-b";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-24-c";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -938,6 +938,8 @@ static void OITIRunDump(NSString *reason) {
 //    "getters" chosen by keyword and crashed SpringBoard: a method named -[FBSApplicationPlaceholderProgress
 //    _queue_updateFromProgress] matched, and it asserts that it runs on its own queue. A name filter cannot tell an action
 //    from a getter on private classes, so the keyword filter now only decides what to LIST, never what to call.
+//  * Build -b ran on the device without a crash. Build -c adds the placeholder layer (SBApplicationPlaceholderController
+//    -placeholdersByDisplayID, the icon's applicationPlaceholder) and follows objects three levels deep, still by ivars.
 //  * InstallDumpCallGetters=YES additionally calls zero-argument getters that the class declares as @property getters
 //    (and still passes the name checks). Off by default; for a second pass once the ivars have shown where to look.
 //  * Every class and selector is looked up by name at run time and is optional. Nothing here is a fact about iOS 16:
@@ -989,7 +991,7 @@ static NSSet<NSString *> *OITIInstallExplicitCollectionGetters(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         names = [NSSet setWithArray:@[@"allApplications", @"allBundleIdentifiers", @"allPlaceholders", @"placeholders",
-                                      @"allApplicationPlaceholders", @"leafIcons", @"allLeafIcons"]];
+                                      @"allApplicationPlaceholders", @"placeholdersByDisplayID", @"leafIcons", @"allLeafIcons"]];
     });
     return names;
 }
@@ -1267,6 +1269,17 @@ static id OITIInstallObjectGetter(id object, NSString *selectorName) {
     }
 }
 
+// Text of one explicitly named zero-argument accessor (used for a few well-known icon accessors only).
+static NSString *OITIInstallExplicitGetterText(id object, NSString *name) {
+    if (!object) return @"nil";
+    Method method = class_getInstanceMethod([object class], NSSelectorFromString(name));
+    if (!method) return @"(no such method)";
+    NSString *text = nil;
+    double number = NAN;
+    id result = nil;
+    return OITIInstallCallGetter(object, method, &text, &number, &result) ? text : @"(not callable)";
+}
+
 static id OITIInstallSharedInstance(Class cls, NSString **how) {
     if (!cls) return nil;
     for (NSString *name in @[@"sharedInstanceIfExists", @"sharedInstance", @"sharedController", @"sharedManager"]) {
@@ -1316,7 +1329,7 @@ static NSArray<NSString *> *OITIInstallActiveSignals(id object) {
             for (NSString *word in OITIInstallActiveKeywords()) {
                 if ([lower containsString:word]) { match = YES; break; }
             }
-            if (!match) continue;
+            if (!match || [lower containsString:@"showsprogress"]) continue;
             if (type[0] == '@') {
                 id value = object_getIvar(object, ivars[i]);
                 BOOL active = value && (![value isKindOfClass:[NSNumber class]] || [(NSNumber *)value doubleValue] != 0);
@@ -1354,11 +1367,11 @@ static NSArray<NSString *> *OITIInstallActiveSignals(id object) {
 }
 
 // Describes one object: class chain, progress-related getters and instance variables, following objects that look
-// relevant (an NSProgress, an installer, a placeholder) up to two levels. An NSProgress is always described fully.
+// relevant (an NSProgress, an installer, a placeholder) up to three levels. An NSProgress is always described fully.
 // `compact` (the samples) logs only NSProgress objects and numeric progress values.
 static void OITIInstallDescribe(id object, NSString *label, NSUInteger depth, NSMutableSet<NSValue *> *seen,
                                 NSInteger *budget, BOOL compact) {
-    if (!object || *budget <= 0 || depth > 2) return;
+    if (!object || *budget <= 0 || depth > 3) return;
     NSValue *key = [NSValue valueWithPointer:(__bridge const void *)object];
     if ([seen containsObject:key]) return;
     [seen addObject:key];
@@ -1417,7 +1430,7 @@ static void OITIInstallDescribe(id object, NSString *label, NSUInteger depth, NS
                 OITIInstallLog(@"GET %@ -%s = %@", label, cname, text);
                 (*budget)--;
             }
-            if (result && depth < 2 && follows < 6 &&
+            if (result && depth < 3 && follows < 6 &&
                 ([result isKindOfClass:[NSProgress class]] || OITIInstallLooksRelevant(result))) {
                 follows++;
                 OITIInstallDescribe(result, [NSString stringWithFormat:@"%@.%s", label, cname], depth + 1, seen, budget, compact);
@@ -1462,7 +1475,7 @@ static void OITIInstallDescribe(id object, NSString *label, NSUInteger depth, NS
                     OITIInstallLog(@"IVAR %@ %s = %@ [%s]", label, name, OITIInstallObjectText(value), type);
                     (*budget)--;
                 }
-                if (follow && depth < 2 && follows < 6) {
+                if (follow && depth < 3 && follows < 6) {
                     follows++;
                     OITIInstallDescribe(value, [NSString stringWithFormat:@"%@.%s", label, name], depth + 1, seen, budget, compact);
                 }
@@ -1668,6 +1681,20 @@ static void OITIInstallScanViews(BOOL compact, NSMutableSet<NSValue *> *seen, NS
         if (++shown > kOITIInstallViewMatchCap) break;
         OITIInstallLog(@"PROGRESSVIEW #%lu %@ | %@", (unsigned long)shown, OITIInstallViewPath(view), OITIViewLine(view));
         OITIInstallDescribe(view, [NSString stringWithFormat:@"progressView%lu", (unsigned long)shown], 0, seen, budget, compact);
+        // The icon that owns this progress view, and the placeholder behind it (explicit accessors only).
+        UIView *owner = view.superview;
+        while (owner && ![NSStringFromClass([owner class]) hasSuffix:@"IconView"]) owner = owner.superview;
+        id ownerIcon = OITIInstallObjectGetter(owner, @"icon");
+        if (ownerIcon) {
+            id placeholder = OITIInstallObjectGetter(ownerIcon, @"applicationPlaceholder");
+            OITIInstallLog(@"PROGRESSICON #%lu owner=%@ icon=%@ %@ progressPercent=%@ progressState=%@ progressPaused=%@ placeholder=%@",
+                           (unsigned long)shown, NSStringFromClass([owner class]), OITIInstallObjectText(ownerIcon),
+                           OITIInstallLabel(ownerIcon), OITIInstallExplicitGetterText(ownerIcon, @"progressPercent"),
+                           OITIInstallExplicitGetterText(ownerIcon, @"progressState"),
+                           OITIInstallExplicitGetterText(ownerIcon, @"isProgressPaused"), OITIInstallObjectText(placeholder));
+            OITIInstallDescribe(ownerIcon, [NSString stringWithFormat:@"progressIcon%lu", (unsigned long)shown], 0, seen, budget, compact);
+            OITIInstallDescribe(placeholder, [NSString stringWithFormat:@"placeholder%lu", (unsigned long)shown], 0, seen, budget, compact);
+        }
     }
 
     NSUInteger active = 0;
@@ -1747,7 +1774,8 @@ static void OITIInstallProbeClasses(void) {
     NSArray<NSString *> *names = @[@"SBApplicationPlaceholder", @"SBApplicationPlaceholderController", @"SBApplicationController",
                                    @"SBApplication", @"SBIconController", @"SBHIconManager", @"SBIconModel", @"SBLeafIcon",
                                    @"SBApplicationIcon", @"SBIconView", @"SBIconProgressView", @"IXAppInstallCoordinator",
-                                   @"IXPlaceholder", @"FBSApplicationPlaceholder", @"FBSApplicationPlaceholderProgress"];
+                                   @"IXPlaceholder", @"FBSApplicationPlaceholder", @"FBSApplicationPlaceholderProgress",
+                                   @"SBHProxiedApplicationPlaceholder", @"SBApplicationPlaceholderProxy"];
     NSArray<NSString *> *words = @[@"progress", @"install", @"download", @"placeholder", @"fraction", @"percent", @"byte",
                                    @"paus", @"updat", @"status", @"phase"];
     for (NSString *name in names) {
@@ -1816,7 +1844,7 @@ static void OITIInstallVerdict(BOOL compact) {
 static void OITIInstallScan(BOOL compact) {
     sInstallFindings = [NSMutableArray array];
     NSMutableSet<NSValue *> *seen = [NSMutableSet set];
-    NSInteger budget = compact ? 24 : 160;
+    NSInteger budget = compact ? 40 : 240;
     OITIInstallScanApps(compact, seen, &budget);
     OITIInstallScanViews(compact, seen, &budget);
     OITIInstallVerdict(compact);
@@ -1866,8 +1894,12 @@ static void OITIRunInstallDump(NSString *reason) {
                    kOITIBuildTag, [NSProcessInfo processInfo].operatingSystemVersionString, [OITDeviceInfo machineIdentifier],
                    (long)samples, interval, (int)sInstallCallGetters);
     @try {
-        OITIInstallListClasses();
-        OITIInstallProbeClasses();
+        if (index == 1) {
+            OITIInstallListClasses();
+            OITIInstallProbeClasses();
+        } else {
+            OITIInstallLog(@"CLASSES and CLASSPROBE are written by the first run after a respring only");
+        }
         OITIInstallScan(NO);
     } @catch (NSException *exception) {
         OITIInstallLog(@"ERROR exception %@: %@", exception.name, exception.reason);

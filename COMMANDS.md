@@ -778,7 +778,7 @@ Steps:
 
 Report: layout problems (clipped text, bar too tall or too short), a speed or size that looks wrong, anything that stays on screen after Stop, and any stutter in other Island animations while the bar updates.
 
-## 17. Install progress dump (†, build `OITI-exp-2026-10-24-b`)
+## 17. Install progress dump (†, build `OITI-exp-2026-10-24-c`)
 
 Download Progress stage 2, step 1: a read-only dump of what SpringBoard exposes about a real install. It does not change anything on screen and needs `DiagnosticsLevel` 1. Line format and how to read it: `DIAGNOSTICS.md`, "OITI install progress dump". The output carries the tag `INSTALL`.
 
@@ -798,7 +798,7 @@ Define the helper once per SSH login. It is forgotten when you log out, so defin
 installdump() { echo "$(date '+%m-%d %H:%M:%S') [MARK] $1" >> /tmp/OITIDebug.log; touch /tmp/OITIInstallDump.trigger; }
 ```
 
-One run takes the snapshot at once and then the samples, so about 12 seconds with the defaults. Wait for `=== END` before the next run:
+One run takes the snapshot at once and then the samples, so about 12 seconds with the defaults. Wait for `=== END` before the next run and before collecting the log (a log collected mid-run is missing the samples):
 
 ```
 grep INSTALL /tmp/OITIDebug.log | tail -n 3
