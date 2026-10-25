@@ -778,7 +778,7 @@ Steps:
 
 Report: layout problems (clipped text, bar too tall or too short), a speed or size that looks wrong, anything that stays on screen after Stop, and any stutter in other Island animations while the bar updates.
 
-## 17. Install progress dump (†, build `OITI-exp-2026-10-24-a`)
+## 17. Install progress dump (†, build `OITI-exp-2026-10-24-b`)
 
 Download Progress stage 2, step 1: a read-only dump of what SpringBoard exposes about a real install. It does not change anything on screen and needs `DiagnosticsLevel` 1. Line format and how to read it: `DIAGNOSTICS.md`, "OITI install progress dump". The output carries the tag `INSTALL`.
 
@@ -790,8 +790,9 @@ Set up once. Turn Auto-Lock off for the test (Settings > Display & Brightness > 
 | `sbreload` | Applies it. Wait about 10 seconds afterwards. | Phone |
 | `defaults write com.wilburt.oiti.prefs InstallDumpSamples -int 6` | Samples after the snapshot (default 6, 0 to 30). | Phone |
 | `defaults write com.wilburt.oiti.prefs InstallDumpIntervalSeconds -float 2` | Seconds between samples (default 2, 1 to 10). | Phone |
+| `defaults write com.wilburt.oiti.prefs InstallDumpCallGetters -bool true` | Second pass only: also call declared property getters of private objects. Default off; build `-a` crashed SpringBoard calling methods by name. Leave it off for the first runs. | Phone |
 
-Define the helper once per SSH login (it is forgotten when you log out). It writes a label into the log and asks for one install dump:
+Define the helper once per SSH login. It is forgotten when you log out, so define it again after reconnecting (a respring alone does not end your session). It writes a label into the log and asks for one install dump:
 
 ```
 installdump() { echo "$(date '+%m-%d %H:%M:%S') [MARK] $1" >> /tmp/OITIDebug.log; touch /tmp/OITIInstallDump.trigger; }

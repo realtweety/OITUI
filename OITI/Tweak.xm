@@ -132,7 +132,7 @@
 // Class query:   put class names, one per line, in /tmp/OITIClassQuery.txt before triggering a dump
 // Install dump:  touch /tmp/OITIInstallDump.trigger  (or Darwin notification com.wilburt.oiti/InstallDump). Read-only look at
 //                what SpringBoard exposes about an install in progress (INSTALL tag, needs DiagnosticsLevel >= 1; see the
-//                section "Install progress dump" below and DIAGNOSTICS.md). Untested, build OITI-exp-2026-10-24-a.
+//                section "Install progress dump" below and DIAGNOSTICS.md). Untested, build OITI-exp-2026-10-24-b (build -a crashed SpringBoard, see "Install progress dump").
 // Clear safe mode: the banner on any OITI settings page, or rm /var/mobile/Library/Preferences/OITISafeMode.plist
 //                (or notification com.wilburt.oiti/ClearSafeMode), then respring
 // Prefs keys (domain com.wilburt.oiti.prefs, set with `defaults write`, no UI yet):
@@ -141,6 +141,7 @@
 //   SafeModeWindowSeconds (int, default 120)    SafeModeStableSeconds (int, default 45)
 //   SafeModeRestoreGestalt (bool, default NO)   -- on a trip, also run the OITIRestoreGestalt helper
 //   InstallDumpSamples (int 0-30, default 6)    InstallDumpIntervalSeconds (1-10, default 2)   -- the install dump's samples
+//   InstallDumpCallGetters (bool, default NO)   -- install dump: also call declared property getters of private objects
 //
 // Log tags: SESSION PREF GUARD SAFE CHECK STATUSBAR ISLAND LAYOUT CURTAIN GAINMAP COLOR TOUCHPASS BANNER APERTURE DUMP CLASSQ NOTIF ELEMENT DOWNLOAD INSTALL
 // Levels:   0 = unconditional lines only, 1 = events and state changes, 2 = adds rate-limited per-call lines.
@@ -164,7 +165,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-24-a";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-24-b";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -931,9 +932,14 @@ static void OITIRunDump(NSString *reason) {
 // How it stays read-only and low risk:
 //  * It only runs at DiagnosticsLevel >= 1, on request (touch /tmp/OITIInstallDump.trigger, or Darwin notification
 //    com.wilburt.oiti/InstallDump). Nothing runs at level 0 and no timer exists for it.
-//  * It calls only zero-argument getters of private objects whose names contain a progress-related word
-//    (OITIInstallNameAllowed). Names that start with an action verb (start, cancel, pause, remove, ...) are never
-//    called, and "install", "download" and "update" are only called when followed by a noun like State or Progress.
+//  * By default it calls NO method on private objects, except a few explicit accessors (shared instances, `icon`,
+//    `iconManager`, `iconModel`, identifier getters and an explicit list of collection getters such as `allApplications`).
+//    Everything else is read from instance variables (memory reads) and from the public NSProgress API. Build -a called
+//    "getters" chosen by keyword and crashed SpringBoard: a method named -[FBSApplicationPlaceholderProgress
+//    _queue_updateFromProgress] matched, and it asserts that it runs on its own queue. A name filter cannot tell an action
+//    from a getter on private classes, so the keyword filter now only decides what to LIST, never what to call.
+//  * InstallDumpCallGetters=YES additionally calls zero-argument getters that the class declares as @property getters
+//    (and still passes the name checks). Off by default; for a second pass once the ivars have shown where to look.
 //  * Every class and selector is looked up by name at run time and is optional. Nothing here is a fact about iOS 16:
 //    the class lists and probes are guesses to check, and the output says which ones exist.
 //  * Output is bounded (line budgets, item caps, a visit cap on the view walk) and goes to the INSTALL tag only.
@@ -975,6 +981,17 @@ static NSArray<NSString *> *OITIInstallWideKeywords(void) {
 // Words that mean "something is in progress" when a getter with that name returns a non-zero or non-nil value.
 static NSArray<NSString *> *OITIInstallActiveKeywords(void) {
     return @[@"progress", @"fraction", @"percent", @"download", @"installing", @"updating", @"paused", @"placeholder"];
+}
+
+// Collection getters that are called by name even when they are plain methods (no verb in the name, no side effects expected).
+static NSSet<NSString *> *OITIInstallExplicitCollectionGetters(void) {
+    static NSSet<NSString *> *names;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        names = [NSSet setWithArray:@[@"allApplications", @"allBundleIdentifiers", @"allPlaceholders", @"placeholders",
+                                      @"allApplicationPlaceholders", @"leafIcons", @"allLeafIcons"]];
+    });
+    return names;
 }
 
 static NSArray<NSString *> *OITIInstallCollectionKeywords(void) {
@@ -1047,6 +1064,23 @@ static BOOL OITIInstallNameAllowed(const char *cname, NSArray<NSString *> *keywo
     }
     return NO;
 }
+
+// Getter names of the properties `cls` itself declares (not inherited ones).
+static NSSet<NSString *> *OITIInstallPropertyGetters(Class cls) {
+    unsigned int count = 0;
+    objc_property_t *properties = class_copyPropertyList(cls, &count);
+    NSMutableSet<NSString *> *names = [NSMutableSet setWithCapacity:count];
+    for (unsigned int i = 0; i < count; i++) {
+        char *custom = property_copyAttributeValue(properties[i], "G");
+        const char *name = custom ? custom : property_getName(properties[i]);
+        if (name) [names addObject:@(name)];
+        free(custom);
+    }
+    free(properties);
+    return names;
+}
+
+static BOOL sInstallCallGetters = NO;   // InstallDumpCallGetters, read when a run starts
 
 static BOOL OITIInstallContainsWord(NSString *text, NSString *word) {
     return [text rangeOfString:word options:NSCaseInsensitiveSearch].location != NSNotFound;
@@ -1265,15 +1299,42 @@ static NSString *OITIInstallLabel(id object) {
     return parts.count ? [parts componentsJoinedByString:@" "] : @"(no identifier getter answered)";
 }
 
-// Getters that report an install in progress: non-zero numbers and non-nil objects behind progress-like names.
+// Signs of an install in progress on an app, icon or view: instance variables with progress-like names that hold a
+// non-zero number or a non-nil object. Property getters are only called when InstallDumpCallGetters is on.
 static NSArray<NSString *> *OITIInstallActiveSignals(id object) {
     if (!object) return @[];
     NSMutableArray<NSString *> *signals = [NSMutableArray array];
     for (Class cls = [object class]; cls && cls != [NSObject class] && signals.count < 8; cls = class_getSuperclass(cls)) {
+        unsigned int ivarCount = 0;
+        Ivar *ivars = class_copyIvarList(cls, &ivarCount);
+        for (unsigned int i = 0; i < ivarCount && signals.count < 8; i++) {
+            const char *name = ivar_getName(ivars[i]);
+            const char *type = ivar_getTypeEncoding(ivars[i]);
+            if (!name || !type || !type[0]) continue;
+            NSString *lower = @(name).lowercaseString;
+            BOOL match = NO;
+            for (NSString *word in OITIInstallActiveKeywords()) {
+                if ([lower containsString:word]) { match = YES; break; }
+            }
+            if (!match) continue;
+            if (type[0] == '@') {
+                id value = object_getIvar(object, ivars[i]);
+                BOOL active = value && (![value isKindOfClass:[NSNumber class]] || [(NSNumber *)value doubleValue] != 0);
+                if (active) [signals addObject:[NSString stringWithFormat:@"ivar %s=%@", name, OITIInstallObjectText(value)]];
+            } else {
+                double number = NAN;
+                NSString *text = OITIInstallIvarScalarText(object, ivars[i], type, &number);
+                if (text && !isnan(number) && number != 0) [signals addObject:[NSString stringWithFormat:@"ivar %s=%@", name, text]];
+            }
+        }
+        free(ivars);
+        if (!sInstallCallGetters) continue;
+        NSSet<NSString *> *properties = OITIInstallPropertyGetters(cls);
         unsigned int count = 0;
         Method *methods = class_copyMethodList(cls, &count);
         for (unsigned int i = 0; i < count && signals.count < 8; i++) {
             const char *cname = sel_getName(method_getName(methods[i]));
+            if (!cname || ![properties containsObject:@(cname)]) continue;
             if (!OITIInstallNameAllowed(cname, OITIInstallActiveKeywords())) continue;
             NSString *text = nil;
             double number = NAN;
@@ -1325,16 +1386,28 @@ static void OITIInstallDescribe(id object, NSString *label, NSUInteger depth, NS
     for (Class cls = [object class]; cls && cls != stop && cls != [NSObject class] && *budget > 0; cls = class_getSuperclass(cls)) {
         unsigned int count = 0;
         Method *methods = class_copyMethodList(cls, &count);
+        NSSet<NSString *> *properties = OITIInstallPropertyGetters(cls);
+        NSMutableArray<NSString *> *listed = [NSMutableArray array];
         NSUInteger shown = 0;
         for (unsigned int i = 0; i < count && *budget > 0 && shown < kOITIInstallProbeMethodCap; i++) {
             const char *cname = sel_getName(method_getName(methods[i]));
-            if (!OITIInstallNameAllowed(cname, OITIInstallWideKeywords())) continue;
+            if (!cname || strchr(cname, ':') || cname[0] == '.') continue;
+            NSString *lowerName = @(cname).lowercaseString;
+            BOOL wide = NO;
+            for (NSString *word in OITIInstallWideKeywords()) {
+                if ([lowerName containsString:word]) { wide = YES; break; }
+            }
+            if (!wide) continue;
+            BOOL isProperty = [properties containsObject:@(cname)];
+            if (!compact && listed.count < 24) [listed addObject:[NSString stringWithFormat:@"%s%@", cname, isProperty ? @"(p)" : @""]];
+            // Never called by default. With InstallDumpCallGetters, only declared property getters that pass the name checks.
+            if (!sInstallCallGetters || !isProperty || !OITIInstallNameAllowed(cname, OITIInstallWideKeywords())) continue;
             NSString *text = nil;
             double number = NAN;
             id result = nil;
             if (!OITIInstallCallGetter(object, methods[i], &text, &number, &result)) continue;
             shown++;
-            NSString *lower = @(cname).lowercaseString;
+            NSString *lower = lowerName;
             BOOL progressName = [lower containsString:@"progress"] || [lower containsString:@"fraction"] || [lower containsString:@"percent"];
             BOOL valueName = progressName || [lower containsString:@"byte"] || [lower containsString:@"completed"] || [lower containsString:@"total"];
             if (!isnan(number) && progressName) {
@@ -1349,6 +1422,11 @@ static void OITIInstallDescribe(id object, NSString *label, NSUInteger depth, NS
                 follows++;
                 OITIInstallDescribe(result, [NSString stringWithFormat:@"%@.%s", label, cname], depth + 1, seen, budget, compact);
             }
+        }
+        if (listed.count) {
+            OITIInstallLog(@"METHODS %@ %@ (names only, not called; (p) = declared property): %@", label, NSStringFromClass(cls),
+                           [listed componentsJoinedByString:@", "]);
+            (*budget)--;
         }
         free(methods);
     }
@@ -1433,9 +1511,13 @@ static void OITIInstallGather(id owner, NSString *ownerName, id applicationContr
     for (Class cls = [owner class]; cls && cls != [NSObject class]; cls = class_getSuperclass(cls)) {
         unsigned int count = 0;
         Method *methods = class_copyMethodList(cls, &count);
+        NSSet<NSString *> *properties = OITIInstallPropertyGetters(cls);
         for (unsigned int i = 0; i < count; i++) {
             const char *cname = sel_getName(method_getName(methods[i]));
-            if (!OITIInstallNameAllowed(cname, OITIInstallCollectionKeywords())) continue;
+            if (!cname) continue;
+            BOOL explicitName = [OITIInstallExplicitCollectionGetters() containsObject:@(cname)];
+            BOOL property = [properties containsObject:@(cname)] && OITIInstallNameAllowed(cname, OITIInstallCollectionKeywords());
+            if (!explicitName && !property) continue;
             NSString *text = nil;
             double number = NAN;
             id result = nil;
@@ -1665,7 +1747,7 @@ static void OITIInstallProbeClasses(void) {
     NSArray<NSString *> *names = @[@"SBApplicationPlaceholder", @"SBApplicationPlaceholderController", @"SBApplicationController",
                                    @"SBApplication", @"SBIconController", @"SBHIconManager", @"SBIconModel", @"SBLeafIcon",
                                    @"SBApplicationIcon", @"SBIconView", @"SBIconProgressView", @"IXAppInstallCoordinator",
-                                   @"IXPlaceholder", @"FBSApplicationPlaceholder"];
+                                   @"IXPlaceholder", @"FBSApplicationPlaceholder", @"FBSApplicationPlaceholderProgress"];
     NSArray<NSString *> *words = @[@"progress", @"install", @"download", @"placeholder", @"fraction", @"percent", @"byte",
                                    @"paus", @"updat", @"status", @"phase"];
     for (NSString *name in names) {
@@ -1778,10 +1860,11 @@ static void OITIRunInstallDump(NSString *reason) {
     NSInteger samples = MAX(0, MIN(30, [sOITIPreferences integerForKey:@"InstallDumpSamples" default:6]));
     double interval = [sOITIPreferences floatForKey:@"InstallDumpIntervalSeconds" default:2.0];
     interval = isfinite(interval) ? MAX(1.0, MIN(10.0, interval)) : 2.0;
+    sInstallCallGetters = [sOITIPreferences boolForKey:@"InstallDumpCallGetters" default:NO];
     sInstallPhase = @"snapshot";
-    OITIInstallLog(@"=== BEGIN #%lu reason=%@ build=%@ os=%@ machine=%@ samples=%ld every %.0f s ===", (unsigned long)index, reason,
+    OITIInstallLog(@"=== BEGIN #%lu reason=%@ build=%@ os=%@ machine=%@ samples=%ld every %.0f s callGetters=%d ===", (unsigned long)index, reason,
                    kOITIBuildTag, [NSProcessInfo processInfo].operatingSystemVersionString, [OITDeviceInfo machineIdentifier],
-                   (long)samples, interval);
+                   (long)samples, interval, (int)sInstallCallGetters);
     @try {
         OITIInstallListClasses();
         OITIInstallProbeClasses();
