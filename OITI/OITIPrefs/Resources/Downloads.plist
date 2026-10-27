@@ -12,7 +12,7 @@
         <key>label</key>
         <string>Download Progress (Experimental)</string>
         <key>footerText</key>
-        <string>Shows the Island as a progress bar with the downloaded size, the total size and the speed while something downloads. Off by default. Early feature: only the built-in test download works so far. App Store and browser downloads come later.</string>
+        <string>Shows the Island as a progress bar with the downloaded size, the total size and the speed while something downloads. Off by default. Early feature: the built-in test download and App Store downloads (switch below) work so far. Browser downloads come later.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -25,6 +25,28 @@
         <string>DownloadProgressEnabled</string>
         <key>label</key>
         <string>Show Download Progress</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>App Store Downloads (Experimental)</string>
+        <key>footerText</key>
+        <string>Shows an App Store download as it happens (a new install; updates and TestFlight are not confirmed yet). iOS only reports a percentage for these, so you get the bar, the percentage and an estimate of the time left, not sizes or speed. Needs Show Download Progress above. Off by default.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadAppStoreEnabled</string>
+        <key>label</key>
+        <string>Show App Store Downloads</string>
         <key>PostNotification</key>
         <string>com.wilburt.oiti/PrefsChanged</string>
       </dict>
@@ -142,7 +164,7 @@
         <key>label</key>
         <string>Return to Idle</string>
         <key>footerText</key>
-        <string>The expanded Island goes back to idle when either limit is reached. Never means no limit. The download itself carries on, and the progress bar comes back when the next download starts. Swiping the bar away does the same.</string>
+        <string>The expanded Island goes back to idle when either limit is reached. Never means no limit. The download itself carries on, and the progress bar comes back when the next download starts. Swiping the bar away does the same. The size limit only applies to downloads that report sizes (the test download); App Store downloads report a percentage only, so use the time limit for them.</string>
       </dict>
       <dict>
         <key>cell</key>
