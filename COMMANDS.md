@@ -844,7 +844,7 @@ Other greps:
 
 If a run prints nothing, check `DiagnosticsLevel` first (`install dump request ignored` appears only for the notification, and the trigger file does nothing at level 0), then `grep SESSION /tmp/OITIDebug.log | tail -n 2`. When you are done, set the level back with `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0` and run `sbreload`. A second class query on whatever the dump finds works as before (section 6: put the class names in `/tmp/OITIClassQuery.txt`, then `dumpstate classq-X`).
 
-## 18. App Store downloads and the percentage-only look (†, build `OITI-exp-2026-10-25-a`)
+## 18. App Store downloads and the percentage-only look (build `OITI-exp-2026-10-25-a`; checked on the device except TestFlight)
 
 Download Progress stage 2. Settings > OITI > **Download Progress** has a new group, **App Store Downloads**, with **Show App Store Downloads**. It needs **Show Download Progress** on too. Both are off by default, Apple Mode switches them off and safe mode never starts the source. App Store downloads report a percentage only (the install dump found no byte counts), so the bar shows the percentage and an estimate of the time left, and no sizes or speed. Section 17 is the read-only dump this was designed from.
 
@@ -862,7 +862,7 @@ Steps:
 4. The end: let it finish. Expect `Download complete` for about 3 seconds, then the Island returns to idle, and the log shows `left the placeholder list at N%: complete (app installed: yes)`. Report how long it took from the last percentage change to that line (the earlier dump saw the fraction sit at 76 percent while the install phase changed).
 5. Cancel: start another download and cancel it (press and hold the icon, Cancel Download, or remove the placeholder). The bar should go within about 3 seconds and the log should say `cancelled (app installed: no)`.
 6. An app update (Updates tab) and a TestFlight install: report whether the bar appears. If it does not, run the install dump (section 17) with the labels `appstore-update-downloading` and `testflight-installing`: an update of an installed app may not be a placeholder at all.
-7. Two downloads at once: the header should read `2 downloads` with the mean percentage.
+7. Two downloads at once: the header reads `2 downloads` (checked; any count above one reads `N downloads`) with the mean percentage.
 8. Switch **Show App Store Downloads** (and then **Show Download Progress**, and **Apple Mode**) off during a download: the bar goes and nothing crashes; on again, it returns while the download is still running.
 
 Report: a bar that never appears (and the `DOWNLOAD` lines), a wrong percentage compared with the icon's ring, an estimate that is far off or jumps, anything that stays on screen after the download is gone, and any respring.
