@@ -23,7 +23,7 @@ Insula, or Order In The Island, gives devices without a Dynamic Island a Dynamic
 
 I am hoping to keep adding quality-of-life features, customization, and more, so recommendations on how to improve and expand Insula are very welcome.
 
-## What Things Does
+## What Things Do
 
 - **The Island:** turn the Dynamic Island on, move it, and resize or scale it (the width and height scales are relative to Apple's own size, so 1.0 is the stock Island). Colour, opacity and notification banner offsets are adjustable and apply live.
 - **Apple Mode:** one switch that turns every Island customization off at once so you can see how the stock Island behaves. It keeps Enable Dynamic Island, the built-in position and notification fixes, the Status Bar Layout setting and safe mode.
