@@ -45,11 +45,11 @@ static NSString *OITIInstalledVersionText(void) {
         }
         NSString *builtIn = @OITI_BUILD_VERSION;
         if (found.length) {
-            text = [NSString stringWithFormat:@"OITI version %@", found];
+            text = [NSString stringWithFormat:@"Insula (OITI) version %@", found];
         } else if (builtIn.length) {
-            text = [NSString stringWithFormat:@"OITI version %@ (built-in)", builtIn];
+            text = [NSString stringWithFormat:@"Insula (OITI) version %@ (built-in)", builtIn];
         } else {
-            text = @"OITI version unknown";
+            text = @"Insula (OITI) version unknown";
         }
     });
     return text;
@@ -288,13 +288,13 @@ static void OITIMarkRespringIntent(void) {
     ]];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
-    title.text = @"OITI safe mode is on";
+    title.text = @"Insula safe mode is on";
     title.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
     title.numberOfLines = 0;
     [stack addArrangedSubview:title];
 
     UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
-    detail.text = [NSString stringWithFormat:@"OITI switched its tweaks off after %@%@. Your changes below are saved but do nothing until safe mode is cleared and you respring. If SpringBoard keeps restarting after that, safe mode will switch on again.", reason, when];
+    detail.text = [NSString stringWithFormat:@"Insula switched its tweaks off after %@%@. Your changes below are saved but do nothing until safe mode is cleared and you respring. If SpringBoard keeps restarting after that, safe mode will switch on again.", reason, when];
     detail.font = [UIFont systemFontOfSize:13.0];
     detail.textColor = UIColor.secondaryLabelColor;
     detail.numberOfLines = 0;
@@ -311,7 +311,7 @@ static void OITIMarkRespringIntent(void) {
 
 - (void)oitiClearSafeModeAsk:(id)sender {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Clear safe mode"
-                                                                   message:@"OITI's tweaks switch back on after the respring."
+                                                                   message:@"Insula's tweaks switch back on after the respring."
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Clear & Respring" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
@@ -383,7 +383,7 @@ static void OITIMarkRespringIntent(void) {
     }
     if ([[self oiti_plistName] isEqualToString:@"Root"]) {
         UILabel *credit = [[UILabel alloc] initWithFrame:CGRectZero];
-        credit.text = @"OITI · Settings design adapted from Liquid (Gl)Ass";
+        credit.text = @"Insula · Settings design adapted from Liquid (Gl)Ass";
         credit.textColor = UIColor.tertiaryLabelColor;
         credit.textAlignment = NSTextAlignmentCenter;
         credit.font = [UIFont systemFontOfSize:11.0];

@@ -1,8 +1,8 @@
 Package: com.wilburt.oiti
-Name: OITI
+Name: Insula
 Version: 0.2.0
 Architecture: iphoneos-arm64
-Description: Dynamic Island simulation module for OITUI (fork of VisibleIsland by ethxnn88, used with permission).
+Description: Insula (OITI), the Dynamic Island simulation module for Tellus (OITUI). A fork of VisibleIsland by ethxnn88, used with permission.
 Maintainer: wilburt
 Author: wilburt (based on VisibleIsland by ethxnn88)
 Section: Tweaks

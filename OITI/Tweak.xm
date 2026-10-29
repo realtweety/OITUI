@@ -62,7 +62,7 @@
 //   1. OITLogger logging (/tmp/OITIDebug.log), see "Log tags" below.
 //   2. Respring-loop guard: after repeated short-lived SpringBoard launches, OITI's hooks are not installed
 //      (safe mode) until the safe-mode file is cleared. A respring requested from OITI's own settings (Respring
-//      button, Clear Safe Mode) leaves OITIRespringIntent.plist and is not counted (UNTESTED, see OVERVIEW.md).
+//      button, Clear Safe Mode) leaves OITIRespringIntent.plist and is not counted (see OVERVIEW.md).
 //      The settings pages show a safe-mode banner with a Clear Safe Mode & Respring button.
 //   3. Startup self-check of the MobileGestalt spoof (islandEnabled vs. the cache, and the restore breadcrumb).
 //   4. On-demand dump of the Island window's view tree, view-controller tree, Apple's "aperture" classes and
@@ -95,7 +95,7 @@
 // "App Store source" below). Apple Mode forces everything off. Browsers (Safari, Chrome, Arc) are stage 3, a separate
 // project. The INSTALL dump (see "Install progress dump") is the read-only tool the App Store source was designed from.
 //
-// ELEMENT CRASH RECOVERY (UNTESTED): while any of OITI's Island elements (a notice or the startup Hello) is live, the
+// ELEMENT CRASH RECOVERY: while any of OITI's Island elements (a notice or the startup Hello) is live, the
 // file OITILiveElement.plist exists; it is written just before the element is registered and deleted when the last one
 // leaves. A file found at launch means the previous SpringBoard ended while an OITI element was live (a crash, or a
 // respring from somewhere other than OITI's own settings). That launch then keeps Island notifications and the
@@ -103,14 +103,14 @@
 // otherwise rebuild the element that crashed. The rest of OITI keeps working. This ends such a loop after one crash
 // instead of the five that trip safe mode, and complements the in-process promotion guard.
 //
-// APPLE MODE (UNTESTED): key appleMode (OITI main page). While on, every Island customization behaves as if it were
+// APPLE MODE: key appleMode (OITI main page). While on, every Island customization behaves as if it were
 // off and the Island is the stock iOS one: custom position, custom scale, Island size, color, opacity, outline hiding,
 // hide when not in use, custom notification position, Island Notifications (and hiding the banner for them) and the
 // startup animation. Kept as the user set them: Enable Dynamic Island, Fix Island Position, Fix Notification
 // Positioning, the Status Bar Layout fix, safe mode and diagnostics. The stored settings are never changed, so
 // turning Apple Mode off brings every customization back as it was. Applied in one place (preferencesChanged).
 //
-// X/Y SCALE (UNTESTED): separate width and height scales applied as one non-uniform transform on the Island window.
+// X/Y SCALE: separate width and height scales applied as one non-uniform transform on the Island window.
 // Contents stretch with it. They are RELATIVE to Apple's own size: 1.0 is the stock Island. Apple's window is a canvas
 // stretched to the screen width by its own uniform transform (1.15 on an iPhone 8 Plus), and setting a transform
 // replaces that one, so the applied transform is Apple's canvas scale times the slider value. Prefs keys
@@ -118,7 +118,7 @@
 // are no longer read and are not migrated. Changing any setting asks the Island window to lay out again, so changes
 // show up immediately instead of at the next layout Apple happens to do.
 //
-// ISLAND SIZE (UNTESTED as a settings feature; confirmed by a dump experiment): Apple builds the Island from
+// ISLAND SIZE (confirmed by a dump experiment and on the device): Apple builds the Island from
 // SBUISystemApertureLayoutMetrics. Its sensorRegionSize getter is the root input: _inertSize, minimumCompactSize, the
 // compact padding areas and the minimum corner radius are all derived from it (a hook on _inertSize alone changed
 // derived numbers but no pill sizes, so only sensorRegionSize is hooked). Scaling what it returns makes the Island
@@ -134,7 +134,7 @@
 // Class query:   put class names, one per line, in /tmp/OITIClassQuery.txt before triggering a dump
 // Install dump:  touch /tmp/OITIInstallDump.trigger  (or Darwin notification com.wilburt.oiti/InstallDump). Read-only look at
 //                what SpringBoard exposes about an install in progress (INSTALL tag, needs DiagnosticsLevel >= 1; see the
-//                section "Install progress dump" below and DIAGNOSTICS.md). Untested, build OITI-exp-2026-10-24-c (build -a crashed SpringBoard, -b ran fine; see "Install progress dump").
+//                section "Install progress dump" below and DIAGNOSTICS.md). Ran on the device, build OITI-exp-2026-10-24-c (build -a crashed SpringBoard, -b and -c ran fine; see "Install progress dump").
 // Clear safe mode: the banner on any OITI settings page, or rm /var/mobile/Library/Preferences/OITISafeMode.plist
 //                (or notification com.wilburt.oiti/ClearSafeMode), then respring
 // Prefs keys (domain com.wilburt.oiti.prefs, set with `defaults write`, no UI yet):
@@ -167,7 +167,7 @@
 
 extern char **environ;
 
-static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-25-a";
+static NSString * const kOITIBuildTag = @"OITI-exp-2026-10-26-a";
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIDumpNotification = @"com.wilburt.oiti/Dump";
@@ -2168,7 +2168,7 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 }
 
 // =============================================================================================
-// MARK: Status bar provider choice: log, and an opt-in fix (UNTESTED)
+// MARK: Status bar provider choice: log, and an opt-in fix
 // =============================================================================================
 
 // With the Island spoof on, some notch iPhones get UIKit's placeholder provider (_UIStatusBarVisualProvider_Fallback,
@@ -2186,7 +2186,7 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 //
 // The native provider "auto" returns comes from, in order: the record this phone wrote about itself (below), the
 // table of models read from real logs, and a guess by native pixel width. The record is written the first time a
-// launch with the Island off builds a status bar (UNTESTED).
+// launch with the Island off builds a status bar (unproven on a notch iPhone: the 8 Plus runs it inert).
 
 @interface _UIStatusBarVisualProvider_iOS : NSObject
 @end
@@ -2910,6 +2910,7 @@ static UIImage *OITIRoundedIcon(UIImage *image, CGFloat side) {
 // Apple's system blue (#007AFF) for the bar, a tint of it for the track, system green when finished. The ends are
 // round: the corner radius is always half the bar height.
 static UIColor *OITIDownloadBlue(void) { return [UIColor colorWithRed:0.0 green:122.0 / 255.0 blue:1.0 alpha:1.0]; }
+static UIColor *OITIDownloadRed(void) { return [UIColor colorWithRed:255.0 / 255.0 green:69.0 / 255.0 blue:58.0 / 255.0 alpha:1.0]; }
 static UIColor *OITIDownloadGreen(void) { return [UIColor colorWithRed:52.0 / 255.0 green:199.0 / 255.0 blue:89.0 / 255.0 alpha:1.0]; }
 
 @interface OITIProgressBarView : UIView
@@ -2917,6 +2918,7 @@ static UIColor *OITIDownloadGreen(void) { return [UIColor colorWithRed:52.0 / 25
 @property (nonatomic, assign) CGFloat barHeight;   // default 6
 - (void)setFraction:(double)fraction animated:(BOOL)animated;
 - (void)setComplete:(BOOL)complete;
+- (void)setCancelled:(BOOL)cancelled;   // red fill; call after setComplete:, which resets the colour
 @end
 
 @implementation OITIProgressBarView {
@@ -2958,6 +2960,9 @@ static UIColor *OITIDownloadGreen(void) { return [UIColor colorWithRed:52.0 / 25
 - (void)setComplete:(BOOL)complete {
     _fill.backgroundColor = complete ? OITIDownloadGreen() : OITIDownloadBlue();
 }
+- (void)setCancelled:(BOOL)cancelled {
+    if (cancelled) _fill.backgroundColor = OITIDownloadRed();
+}
 @end
 
 // The minimal look, on the WIDE layout. The same body for every download:
@@ -2981,6 +2986,8 @@ static const CGFloat kOITIMinimalBarHeight = 7.0;
 @property (nonatomic, readonly) OITIProgressBarView *bar;
 - (void)setHeader:(NSString *)header downloaded:(NSString *)downloaded total:(NSString *)total speed:(NSString *)speed
           percent:(NSString *)percent fraction:(double)fraction complete:(BOOL)complete;
+- (void)playCompletion;    // the text fades out, the bar becomes a green circle and a check is drawn in it
+- (void)resetCompletion;   // back to the normal layout (a new download started)
 @end
 
 @implementation OITIMinimalDownloadView {
@@ -2989,6 +2996,8 @@ static const CGFloat kOITIMinimalBarHeight = 7.0;
     UILabel *_bottom;
     UILabel *_speed;
     UILabel *_percent;
+    CAShapeLayer *_check;
+    BOOL _completionShown;
 }
 - (UILabel *)minimalLabelWithSize:(CGFloat)size weight:(UIFontWeight)weight alignment:(NSTextAlignment)alignment {
     UILabel *label = [[UILabel alloc] init];
@@ -3017,8 +3026,19 @@ static const CGFloat kOITIMinimalBarHeight = 7.0;
 }
 - (CGSize)intrinsicContentSize { return CGSizeMake(kOITIMinimalWidth, kOITIMinimalHeight); }
 - (CGSize)sizeThatFits:(CGSize)size { return CGSizeMake(kOITIMinimalWidth, kOITIMinimalHeight); }
+- (CGRect)completionCircleFrame {
+    CGFloat diameter = 30.0;
+    return CGRectMake((self.bounds.size.width - diameter) / 2.0, (self.bounds.size.height - diameter) / 2.0, diameter, diameter);
+}
+- (NSArray<UILabel *> *)allLabels {
+    return @[_header, _top, _bottom, _speed, _percent];
+}
 - (void)layoutSubviews {
     [super layoutSubviews];
+    if (_completionShown) {   // the labels are faded out (and scaled, so their frames are left alone); only the circle needs placing
+        _bar.frame = [self completionCircleFrame];
+        return;
+    }
     CGFloat width = self.bounds.size.width;
     CGFloat barX = kOITIMinimalSpeedWidth + kOITIMinimalGap;
     CGFloat barWidth = MAX(40.0, width - barX - kOITIMinimalGap - kOITIMinimalPercentWidth);
@@ -3039,6 +3059,82 @@ static const CGFloat kOITIMinimalBarHeight = 7.0;
     if (![_percent.text isEqualToString:percent]) _percent.text = percent;
     [_bar setComplete:complete];
     [_bar setFraction:fraction animated:YES];
+}
+// Completion: all the text fades and shrinks away while the bar contracts into a green circle, then a white check is drawn
+// in the circle (a stroke animation). With Reduce Motion on, the end state appears at once.
+- (void)playCompletion {
+    if (_completionShown) return;
+    _completionShown = YES;
+    CGRect circle = [self completionCircleFrame];
+    if (!_check) {
+        _check = [CAShapeLayer layer];
+        _check.fillColor = nil;
+        _check.strokeColor = UIColor.whiteColor.CGColor;
+        _check.lineWidth = 3.0;
+        _check.lineCap = kCALineCapRound;
+        _check.lineJoin = kCALineJoinRound;
+        [self.layer addSublayer:_check];
+    }
+    CGFloat d = circle.size.width;
+    UIBezierPath *path = [UIBezierPath bezierPath];
+    [path moveToPoint:CGPointMake(CGRectGetMinX(circle) + d * 0.28, CGRectGetMinY(circle) + d * 0.52)];
+    [path addLineToPoint:CGPointMake(CGRectGetMinX(circle) + d * 0.43, CGRectGetMinY(circle) + d * 0.67)];
+    [path addLineToPoint:CGPointMake(CGRectGetMinX(circle) + d * 0.72, CGRectGetMinY(circle) + d * 0.35)];
+    BOOL reduceMotion = UIAccessibilityIsReduceMotionEnabled();
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _check.frame = self.bounds;
+    _check.path = path.CGPath;
+    _check.hidden = NO;
+    _check.strokeEnd = reduceMotion ? 1.0 : 0.0;
+    [CATransaction commit];
+    [_bar.layer removeAllAnimations];
+    for (UIView *subview in _bar.subviews) [subview.layer removeAllAnimations];
+    if (reduceMotion) {
+        for (UILabel *label in [self allLabels]) label.alpha = 0.0;
+        _bar.frame = circle;
+        [_bar setFraction:1.0 animated:NO];
+        return;
+    }
+    [UIView animateWithDuration:0.22 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
+        for (UILabel *label in [self allLabels]) {
+            label.alpha = 0.0;
+            label.transform = CGAffineTransformMakeScale(0.8, 0.8);
+        }
+    } completion:nil];
+    [UIView animateWithDuration:0.45 delay:0.05 usingSpringWithDamping:0.78 initialSpringVelocity:0.0 options:0 animations:^{
+        self->_bar.frame = circle;
+    } completion:nil];
+    [_bar setFraction:1.0 animated:YES];   // the bar's bounds are already the circle's, so the fill shrinks with it
+    CABasicAnimation *draw = [CABasicAnimation animationWithKeyPath:@"strokeEnd"];
+    draw.fromValue = @0.0;
+    draw.toValue = @1.0;
+    draw.duration = 0.32;
+    draw.beginTime = [_check convertTime:CACurrentMediaTime() fromLayer:nil] + 0.32;
+    draw.fillMode = kCAFillModeBackwards;
+    draw.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _check.strokeEnd = 1.0;
+    [CATransaction commit];
+    [_check addAnimation:draw forKey:@"draw"];
+}
+- (void)resetCompletion {
+    if (!_completionShown) return;
+    _completionShown = NO;
+    [_bar.layer removeAllAnimations];
+    for (UIView *subview in _bar.subviews) [subview.layer removeAllAnimations];
+    [_check removeAllAnimations];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _check.hidden = YES;
+    _check.strokeEnd = 0.0;
+    [CATransaction commit];
+    for (UILabel *label in [self allLabels]) {
+        label.alpha = 1.0;
+        label.transform = CGAffineTransformIdentity;
+    }
+    [self setNeedsLayout];
 }
 @end
 
@@ -3875,7 +3971,7 @@ static BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info,
 }
 
 // =============================================================================================
-// MARK: Download progress (UNTESTED, stage 1: the fake download is the only source)
+// MARK: Download progress (the tracker, the Minimal pill and the Detailed element; the App Store source is below)
 // =============================================================================================
 // A small tracker that takes bytes from any source and drives one Island element. Everything here runs on the main
 // thread. Sources call OITIDownloadUpdate while a download runs and OITIDownloadFinish when it ends.
@@ -4182,7 +4278,10 @@ static NSString *OITIDownloadHeaderText(NSDictionary *snapshot) {
 }
 
 // Writes the snapshot into whichever look is showing. complete shows the finished state.
-static void OITIDownloadUpdateViews(NSDictionary *snapshot, BOOL complete) {
+// ending: 0 = running, 1 = completed, 2 = cancelled (a short red "Cancelled" state).
+static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
+    BOOL complete = ending == 1;
+    BOOL cancelled = ending == 2;
     NSDictionary *item = sDownloadItem;
     OITIMinimalDownloadView *minimal = sDownloadPill.content;
     if ((!item && !minimal) || !snapshot) return;
@@ -4196,6 +4295,13 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, BOOL complete) {
     NSString *percent = (fractionMode || total > 0 || complete) ? [NSString stringWithFormat:@"%d%%", (int)floor(fraction * 100.0 + 0.0001)] : @"…";
     NSString *header = OITIDownloadHeaderText(snapshot);
 
+    if (minimal && cancelled) {
+        [minimal resetCompletion];
+        [minimal setHeader:header downloaded:@"Cancelled" total:@"" speed:@"" percent:percent fraction:fraction complete:NO];
+        [minimal.bar setCancelled:YES];
+        [sDownloadPill refreshOrientation];
+        return;
+    }
     if (minimal && fractionMode) {
         // A source that only knows a percentage: no sizes and no speed, a state word above the bar and the estimate below it.
         [minimal setHeader:header
@@ -4203,6 +4309,7 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, BOOL complete) {
                      total:etaText
                      speed:complete ? @"Done" : @""
                    percent:percent fraction:fraction complete:complete];
+        if (complete) [minimal playCompletion]; else [minimal resetCompletion];
         [sDownloadPill refreshOrientation];
         return;
     }
@@ -4212,6 +4319,7 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, BOOL complete) {
                      total:total > 0 ? OITIDownloadBytesText(total) : @"?"
                      speed:complete ? @"Done" : [NSString stringWithFormat:@"%@/s", OITIDownloadBytesText(speed)]
                    percent:percent fraction:fraction complete:complete];
+        if (complete) [minimal playCompletion]; else [minimal resetCompletion];
         [sDownloadPill refreshOrientation];
         return;
     }
@@ -4221,7 +4329,9 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, BOOL complete) {
     UILabel *headline = (UILabel *)item[@"primaryView"];
     if ([headline isKindOfClass:[UILabel class]] && ![headline.text isEqualToString:header]) headline.text = header;
     NSString *detailText;
-    if (complete) {
+    if (cancelled) {
+        detailText = @"Download cancelled";
+    } else if (complete) {
         detailText = fractionMode ? @"Download complete" : [NSString stringWithFormat:@"Download complete · %@", OITIDownloadBytesText(downloaded)];
     } else if (fractionMode) {
         NSString *state = paused ? @"Paused" : etaText;
@@ -4234,6 +4344,7 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, BOOL complete) {
     }
     if (![detail.text isEqualToString:detailText]) detail.text = detailText;
     [bar setComplete:complete];
+    if (cancelled) [bar setCancelled:YES];
     [bar setFraction:fraction animated:YES];
     if ([trailing isKindOfClass:[UILabel class]] && ![trailing.text isEqualToString:percent]) {
         trailing.text = percent;
@@ -4416,17 +4527,18 @@ static void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, 
     OITIDownloadsRefresh();
 }
 
-// A download ended: completed YES shows a short "complete" state once the last one is done, NO (cancelled or failed)
-// removes the element at once.
-static void OITIDownloadFinish(NSString *identifier, BOOL completed) {
+// outcome: 0 = drop quietly (the feature or the source was switched off), 1 = completed (a short "complete" state with the
+// check animation), 2 = cancelled (a short red "Cancelled" state). With several downloads only the one that ended is removed.
+static void OITIDownloadEnd(NSString *identifier, NSInteger outcome) {
     NSMutableDictionary *download = sDownloads[identifier];
     if (!download) return;
+    BOOL completed = outcome == 1;
     double total = [download[@"total"] doubleValue];
     if (completed && total > 0) download[@"downloaded"] = @(total);
     if (completed && [download[@"fractionOnly"] boolValue]) download[@"fraction"] = @1.0;
     NSDictionary *finalSnapshot = OITIDownloadSnapshot();
     [sDownloads removeObjectForKey:identifier];
-    [sLog logTag:@"DOWNLOAD" format:@"%@ %@", completed ? @"finished" : @"cancelled", identifier];
+    [sLog logTag:@"DOWNLOAD" format:@"%@ %@", completed ? @"finished" : (outcome == 2 ? @"cancelled" : @"dropped"), identifier];
     OITIDownloadsEnsureTimer();
     if (sDownloads.count) {
         OITIDownloadsRefresh();
@@ -4434,11 +4546,22 @@ static void OITIDownloadFinish(NSString *identifier, BOOL completed) {
     }
     if (!sDownloadItem && !sDownloadPill) return;
     if (!completed) {
+        if (outcome == 2 && finalSnapshot) {
+            OITIDownloadUpdateViews(finalSnapshot, 2);
+            NSUInteger cancelGeneration = ++sDownloadCompleteGeneration;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if (cancelGeneration == sDownloadCompleteGeneration && !sDownloads.count) {
+                    if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"download-cancelled");
+                    OITIDownloadPillDismiss(@"download-cancelled");
+                }
+            });
+            return;
+        }
         if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"download-cancelled");
         OITIDownloadPillDismiss(@"download-cancelled");
         return;
     }
-    OITIDownloadUpdateViews(finalSnapshot, YES);
+    OITIDownloadUpdateViews(finalSnapshot, 1);
     NSUInteger generation = ++sDownloadCompleteGeneration;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (generation == sDownloadCompleteGeneration && !sDownloads.count) {
@@ -4446,6 +4569,16 @@ static void OITIDownloadFinish(NSString *identifier, BOOL completed) {
             OITIDownloadPillDismiss(@"download-complete");
         }
     });
+}
+
+// A download ended: completed YES shows the "complete" state, NO shows "Cancelled" (the last one only).
+static void OITIDownloadFinish(NSString *identifier, BOOL completed) {
+    OITIDownloadEnd(identifier, completed ? 1 : 2);
+}
+
+// A download stops being tracked without a verdict (the source was switched off): the bar goes at once.
+static void OITIDownloadDrop(NSString *identifier) {
+    OITIDownloadEnd(identifier, 0);
 }
 
 static void OITIDownloadsEnsureTimer(void) {
@@ -4712,7 +4845,7 @@ static void OITIAppStoreSourceRefresh(void) {
     } else if (!wanted && sAppStoreTimer) {
         [sAppStoreTimer invalidate];
         sAppStoreTimer = nil;
-        for (NSString *bundleID in sAppStoreTracked.allKeys) OITIDownloadFinish(OITIAppStoreIdentifier(bundleID), NO);
+        for (NSString *bundleID in sAppStoreTracked.allKeys) OITIDownloadDrop(OITIAppStoreIdentifier(bundleID));
         [sAppStoreTracked removeAllObjects];
         [sLog logLevel:1 tag:@"DOWNLOAD" format:@"App Store source off"];
     }
@@ -4722,9 +4855,9 @@ static void OITIAppStoreSourceRefresh(void) {
 // it never reacts to a notification: it is a manual test of the element mechanism.
 static void OITIRunPoCElement(NSString *reason) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSDictionary *info = @{ @"bundleID": @"com.apple.Preferences", @"appName": @"OITI",
+        NSDictionary *info = @{ @"bundleID": @"com.apple.Preferences", @"appName": @"Insula",
                                 @"title": @"Island Notification", @"subtitle": @"",
-                                @"message": @"Hello from OITI Island Notifications" };
+                                @"message": @"Hello from Insula" };
         // /tmp/OITIPoCSample.txt (optional): title, message, bundle id, subtitle, one per line, to try long text or no title.
         NSString *sample = [NSString stringWithContentsOfFile:@"/tmp/OITIPoCSample.txt" encoding:NSUTF8StringEncoding error:nil];
         if (sample.length) {
@@ -4829,7 +4962,7 @@ static void OITIRunStartupHello(void) {
             return;
         }
         // Persist only after the Island element was registered, so a failed presentation does not consume the cooldown.
-        NSDictionary *info = @{ @"bundleID": @"com.apple.Preferences", @"appName": @"OITI",
+        NSDictionary *info = @{ @"bundleID": @"com.apple.Preferences", @"appName": @"Insula",
                                 @"title": @"Hello", @"subtitle": @"", @"message": @"Startup animation prototype" };
         BOOL shown = OITIPresentNoticeElement(info, @"startup-hello");
         sStartupHelloObservationWindowOpen = NO;

@@ -330,9 +330,9 @@ If the Island looks broken, run the "Back to Apple's own size" block. If SpringB
 | `grep -e GUARD -e SAFE /tmp/OITIDebug.log` | The guard's decisions. | Phone |
 | `cat /var/mobile/Library/Preferences/OITIRespringIntent.plist` | The marker OITI's settings leave just before they respring (Respring button, Clear Safe Mode). The guard deletes it on the next launch, so an error here is normal. † | Phone |
 
-Safe mode also shows as a banner at the top of every OITI settings page, with a **Clear Safe Mode & Respring** button (†, `experiments` build `OITI-exp-2026-10-20-a`). A respring started from OITI's own Respring button or that button is not counted as a possible crash: the guard logs `respring requested from OITI settings N s ago: launch not counted, history cleared`. A respring from anywhere else (`sbreload`, another tweak, Dopamine) still counts.
+Safe mode also shows as a banner at the top of every OITI settings page, with a **Clear Safe Mode & Respring** button (`experiments` build `OITI-exp-2026-10-20-a`). A respring started from OITI's own Respring button or that button is not counted as a possible crash: the guard logs `respring requested from OITI settings N s ago: launch not counted, history cleared`. A respring from anywhere else (`sbreload`, another tweak, Dopamine) still counts.
 
-Test the marker (†). After each respring wait for the Island, then reopen Settings > OITI and tap Respring again. Do this six times about 20 seconds apart, then:
+Test the marker. After each respring wait for the Island, then reopen Settings > Insula and tap Respring again. Do this six times about 20 seconds apart, then:
 
 ```
 grep -e GUARD -e SAFE /tmp/OITIDebug.log | tail -n 20
@@ -340,7 +340,7 @@ grep -e GUARD -e SAFE /tmp/OITIDebug.log | tail -n 20
 
 Every launch after the first should say `launch not counted`, and there should be no `TRIPPED`. Then check that a real loop is still caught: run `sbreload` over SSH five times, about 10 seconds apart. The fifth launch should log `TRIPPED`, OITI's changes disappear, and the banner appears on the settings pages. Tap **Clear Safe Mode & Respring** and confirm OITI's changes return.
 
-Deliberately trip the guard (†). This fakes four recent launches, so the next respring is the fifth:
+Deliberately trip the guard. This fakes four recent launches, so the next respring is the fifth:
 
 ```
 NOW=$(date +%s)
@@ -584,7 +584,7 @@ Wait at least 2 minutes between resprings so the respring-loop guard (section 7)
 
 **Someone reports the red bar.**
 1. They install the `.deb` and respring once. Automatic is the default.
-2. If it is still red or looks wrong: Settings > OITI > Status Bar Layout, pick another layout, tap Respring, wait 2 minutes.
+2. If it is still red or looks wrong: Settings > Insula > Status Bar Layout, pick another layout, tap Respring, wait 2 minutes.
 3. They run `grep CHOICE /tmp/OITIDebug.log` and send the output.
 
 **Reading a `CHOICE` line.**
@@ -605,7 +605,7 @@ Valid values are `auto`, `off`, or a `_UIStatusBarVisualProvider_*` class name f
 
 ## 13. Island Notifications (OITI 0.2.0)
 
-Island Notifications shows each notification banner as an Island element. It is off by default. The switches and sliders are on Settings > OITI > Notifications and write the domain `com.wilburt.oiti.prefs`. Everything except the install lines below needs the Island on (OITI's spoof or real hardware); otherwise the stock banner stays.
+Island Notifications shows each notification banner as an Island element. It is off by default. The switches and sliders are on Settings > Insula > Notifications and write the domain `com.wilburt.oiti.prefs`. Everything except the install lines below needs the Island on (OITI's spoof or real hardware); otherwise the stock banner stays.
 
 | Key | Meaning |
 | --- | --- |
@@ -708,19 +708,19 @@ defaults write com.wilburt.oiti.prefs islandNotificationsEnabled -int 0
 ```
 
 
-## 14. Live settings check (†, builds `OITI-exp-2026-10-21-a` and `-b`)
+## 14. Live settings check (builds `OITI-exp-2026-10-21-a` and `-b`)
 
 Color, opacity, outline hiding and the custom banner position now apply while the setting changes, with no respring. The Island has to be on screen to see the first three, so start a timer first (Clock app, or ask Siri for one).
 
-1. Settings > OITI > Color and Opacity. Turn on **Use Custom Color** and drag Red, Green and Blue: the Island background should follow the slider while it moves. Turn the switch off: the Island goes back to black.
+1. Settings > Insula > Color and Opacity. Turn on **Use Custom Color** and drag Red, Green and Blue: the Island background should follow the slider while it moves. Turn the switch off: the Island goes back to black.
 2. Turn on **Use Custom Opacity** and drag **Opacity** (the slider used to be labelled "Blue"). The Island should fade and change as you drag, then return to normal when the switch goes off. The same slider also sets the custom color's alpha when Use Custom Color is on.
 3. Root page: switch **Disable Island Outline** on and off. The outline should hide and come back live.
-4. Settings > OITI > Notifications: turn on **Use Custom Notification Position** and change X and Y. A banner window that already exists moves immediately; otherwise the next banner appears at the new position. Turning the custom position **off** only takes effect on the next banner, because OITI does not know the original frame.
+4. Settings > Insula > Notifications: turn on **Use Custom Notification Position** and change X and Y. A banner window that already exists moves immediately; otherwise the next banner appears at the new position. Turning the custom position **off** only takes effect on the next banner, because OITI does not know the original frame.
 
 5. Bottom of the main OITI page: the line under the credit should read `OITI version 0.2.0-1+debug` for a debug build, or `0.2.0` for a release package. It comes from the package database (`/var/jb/var/lib/dpkg/status`). If Settings is not allowed to read that file it shows the version taken from `control` at build time with `(built-in)` after it, which for a debug build lacks the `-1+debug` part.
 
-6. Settings > OITI > Scale, **Use Custom Scale** (build `OITI-exp-2026-10-21-b`, †). The width and height sliders are relative to Apple's size now, so 1.0 is the stock Island. With the switch on and both sliders at 1.0, the Island must look the same as with the switch off, **position included**: turn it on and off and confirm nothing moves. Then change the sliders: below 1.0 shrinks the Island and its content, above 1.0 grows them. **Reset Scale** puts both back to 1.0. Anyone who had Custom Scale on before this build starts at 1.0 (the old values are not carried over).
-7. Apple Mode, main page, the switch under **Enable Dynamic Island** (†). Set a few customizations first (a custom color, Island size 0.65 / 0.70, Use Custom Position, Island Notifications on). Turn **Apple Mode** on: a blue banner appears at the top of every page, and the Island should go back to the stock iOS one without a respring (custom color and size gone, notification stack cleared, banners back to the system banner). **Fix Island Position**, **Enable Dynamic Island**, Status Bar Layout and safe mode must keep working as set. On another page the banner has **Turn Off Apple Mode**. Turn it off and every customization must return exactly as it was. Log lines: `grep -e "Apple Mode" /tmp/OITIDebug.log` shows `PREF Apple Mode ON: ...` and `OFF`.
+6. Settings > Insula > Scale, **Use Custom Scale** (build `OITI-exp-2026-10-21-b`). The width and height sliders are relative to Apple's size now, so 1.0 is the stock Island. With the switch on and both sliders at 1.0, the Island must look the same as with the switch off, **position included**: turn it on and off and confirm nothing moves. Then change the sliders: below 1.0 shrinks the Island and its content, above 1.0 grows them. **Reset Scale** puts both back to 1.0. Anyone who had Custom Scale on before this build starts at 1.0 (the old values are not carried over).
+7. Apple Mode, main page, the switch under **Enable Dynamic Island**. Set a few customizations first (a custom color, Island size 0.65 / 0.70, Use Custom Position, Island Notifications on). Turn **Apple Mode** on: a blue banner appears at the top of every page, and the Island should go back to the stock iOS one without a respring (custom color and size gone, notification stack cleared, banners back to the system banner). **Fix Island Position**, **Enable Dynamic Island**, Status Bar Layout and safe mode must keep working as set. On another page the banner has **Turn Off Apple Mode**. Turn it off and every customization must return exactly as it was. Log lines: `grep -e "Apple Mode" /tmp/OITIDebug.log` shows `PREF Apple Mode ON: ...` and `OFF`.
 
 Check the log (level 1 shows COLOR, level 2 shows TOUCHPASS):
 
@@ -730,7 +730,7 @@ grep -e COLOR -e TOUCHPASS -e PREF /tmp/OITIDebug.log | tail -n 20
 
 Report anything that only changes after a respring, and anything that fails to return to stock when its switch is turned off.
 
-## 15. Element crash recovery check (†, build `OITI-exp-2026-10-21-c`)
+## 15. Element crash recovery check (build `OITI-exp-2026-10-21-c`)
 
 While an OITI Island element is on screen, `/var/mobile/Library/Preferences/OITILiveElement.plist` exists. If SpringBoard ends while it does, the next launch keeps Island notifications and the startup animation off for 120 seconds and uses the stock banner. Test it by killing SpringBoard on purpose while a notice is showing.
 
@@ -742,7 +742,7 @@ While an OITI Island element is on screen, `/var/mobile/Library/Preferences/OITI
 
 Steps:
 
-1. Settings > OITI > Notifications: turn **Island Notifications** on and set the duration to 15 seconds. Make sure Apple Mode is off.
+1. Settings > Insula > Notifications: turn **Island Notifications** on and set the duration to 15 seconds. Make sure Apple Mode is off.
 2. Over SSH, confirm the breadcrumb is absent: `cat /var/mobile/Library/Preferences/OITILiveElement.plist` should say no such file.
 3. Type `killall -9 SpringBoard` in the SSH session but do not press Enter. Make a notification arrive (a message from another device, or a timer). While the Island notice is showing, press Enter. In a second SSH session you can also check that the breadcrumb exists during the notice.
 4. After the respring, wait for the Island and log in again: `grep RECOVERY /tmp/OITIDebug.log | tail -n 5` should show `RECOVERY the previous SpringBoard ended while an OITI Island element was live`, and no breadcrumb file should exist.
@@ -753,9 +753,9 @@ Steps:
 
 Note: a respring from anywhere other than OITI's settings while a notice is on screen (`sbreload`, another tweak) also counts as a dirty exit and opens the window. That is expected and costs only 120 seconds of stock banners.
 
-## 16. Download progress check (†, builds `OITI-exp-2026-10-21-d` to `-j`)
+## 16. Download progress check (builds `OITI-exp-2026-10-21-d` to `-j`)
 
-Stage 1 has one source, a simulated download (stage 2 adds App Store downloads and the percentage-only look: section 18). Settings > OITI > **Download Progress** has the switch, the two return-to-idle limits, the test size and the Start and Stop buttons. Everything is off by default, and Apple Mode hides it.
+Stage 1 has one source, a simulated download (stage 2 adds App Store downloads and the percentage-only look: section 18). Settings > Insula > **Download Progress** has the switch, the two return-to-idle limits, the test size and the Start and Stop buttons. Everything is off by default, and Apple Mode hides it.
 
 | Command | What it does | Where |
 | --- | --- | --- |
@@ -763,7 +763,7 @@ Stage 1 has one source, a simulated download (stage 2 adds App Store downloads a
 
 Steps:
 
-1. Turn on **Show Download Progress**, leave both limits on Never, set the test size to 800 MB, tap **Start Test Download**. With Style **Minimal** (the default; OITI's own pill since build `-h`, matched to the Island since `-j`) a black pill should grow from the top of the Island, starting at the Island's own top edge and centered on it, with the Island's height kept empty at the top (like the expanded Island's sensor row) and, under it, as the owner designed it: the header `App Store - Test Download` centered; the downloaded size centered above the bar; the row with the speed on the left of the bar, the rounded blue bar in the middle and the percentage on the right; and the total size centered under the bar. An unknown total shows `?` and an unknown percentage `…`. The numbers update about twice a second, with the speed drifting between about 2 and 28 MB/s. **Settings > OITI > Download Progress > Minimal Size** has **Width**, **Bottom padding** and **Move up or down** sliders that apply while the pill is showing. Play music or start a timer first and check that the pill still covers the Island completely and lines up with its top edge. The log says how the Island was found: `grep DOWNLOAD /tmp/OITIDebug.log | tail -n 6` shows `island={{x, y}, {w, h}} (the Island's pill view (N candidates) | computed from the stock size ...) -> pill={...}`. If the pill's top edge does not line up with where the Island is, send that line and what you see, or use **Move up or down** meanwhile. Swipe the pill up to dismiss it. If no pill appears at all (build `-h` showed nothing), run `grep DOWNLOAD /tmp/OITIDebug.log | tail -n 15` and send the output. Build `-i` creates the pill's window in the Island's own window scene and writes `progress pill up for ...` plus two `pill shown:` and `pill 0.8 s later:` lines with the window's hidden flag, scene, level, whether the pill is in that window, its alpha and its frame, which says exactly why it is or is not on screen. If even `test download started` is missing from the log, the Start button never reached SpringBoard (check for a safe-mode banner or Apple Mode). **The bar must stay on screen well past your Island Notifications duration**: in build `-d` it disappeared after about that many seconds because the system's own alert timer ended it and OITI was never told. Leave the test running for a full minute and watch.
+1. Turn on **Show Download Progress**, leave both limits on Never, set the test size to 800 MB, tap **Start Test Download**. With Style **Minimal** (the default; OITI's own pill since build `-h`, matched to the Island since `-j`) a black pill should grow from the top of the Island, starting at the Island's own top edge and centered on it, with the Island's height kept empty at the top (like the expanded Island's sensor row) and, under it, as the owner designed it: the header `App Store - Test Download` centered; the downloaded size centered above the bar; the row with the speed on the left of the bar, the rounded blue bar in the middle and the percentage on the right; and the total size centered under the bar. An unknown total shows `?` and an unknown percentage `…`. The numbers update about twice a second, with the speed drifting between about 2 and 28 MB/s. **Settings > Insula > Download Progress > Minimal Size** has **Width**, **Bottom padding** and **Move up or down** sliders that apply while the pill is showing. Play music or start a timer first and check that the pill still covers the Island completely and lines up with its top edge. The log says how the Island was found: `grep DOWNLOAD /tmp/OITIDebug.log | tail -n 6` shows `island={{x, y}, {w, h}} (the Island's pill view (N candidates) | computed from the stock size ...) -> pill={...}`. If the pill's top edge does not line up with where the Island is, send that line and what you see, or use **Move up or down** meanwhile. Swipe the pill up to dismiss it. If no pill appears at all (build `-h` showed nothing), run `grep DOWNLOAD /tmp/OITIDebug.log | tail -n 15` and send the output. Build `-i` creates the pill's window in the Island's own window scene and writes `progress pill up for ...` plus two `pill shown:` and `pill 0.8 s later:` lines with the window's hidden flag, scene, level, whether the pill is in that window, its alpha and its frame, which says exactly why it is or is not on screen. If even `test download started` is missing from the log, the Start button never reached SpringBoard (check for a safe-mode banner or Apple Mode). **The bar must stay on screen well past your Island Notifications duration**: in build `-d` it disappeared after about that many seconds because the system's own alert timer ended it and OITI was never told. Leave the test running for a full minute and watch.
 2. Let it finish: the bar turns green with `Download complete · 800 MB` for about 3 seconds, then the Island returns to idle. Check the compact state too (for example, open an app so the Island shows compact): it should show the app icon and a percentage.
 3. Return to idle by size: set **After this much is downloaded** to 100 MB and start a test. At about 100 MB the Island should go idle and the log should say `limit reached (... downloaded)`. The download carries on in the background. Tap Start again after Stop: the bar returns.
 4. By time: set the size limit back to Never, **After this long on screen** to 20 s, start a test. The Island should go idle after 20 seconds.
@@ -778,7 +778,7 @@ Steps:
 
 Report: layout problems (clipped text, bar too tall or too short), a speed or size that looks wrong, anything that stays on screen after Stop, and any stutter in other Island animations while the bar updates.
 
-## 17. Install progress dump (†, build `OITI-exp-2026-10-24-c`)
+## 17. Install progress dump (build `OITI-exp-2026-10-24-c`)
 
 Download Progress stage 2, step 1: a read-only dump of what SpringBoard exposes about a real install. It does not change anything on screen and needs `DiagnosticsLevel` 1. Line format and how to read it: `DIAGNOSTICS.md`, "OITI install progress dump". The output carries the tag `INSTALL`.
 
@@ -844,9 +844,9 @@ Other greps:
 
 If a run prints nothing, check `DiagnosticsLevel` first (`install dump request ignored` appears only for the notification, and the trigger file does nothing at level 0), then `grep SESSION /tmp/OITIDebug.log | tail -n 2`. When you are done, set the level back with `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0` and run `sbreload`. A second class query on whatever the dump finds works as before (section 6: put the class names in `/tmp/OITIClassQuery.txt`, then `dumpstate classq-X`).
 
-## 18. App Store downloads and the percentage-only look (build `OITI-exp-2026-10-25-a`; checked on the device except TestFlight)
+## 18. App Store downloads and the percentage-only look (build `OITI-exp-2026-10-26-a`; the App Store source was checked on the device with `-25-a` except TestFlight, the Cancelled state and the check animation are new and untested)
 
-Download Progress stage 2. Settings > OITI > **Download Progress** has a new group, **App Store Downloads**, with **Show App Store Downloads**. It needs **Show Download Progress** on too. Both are off by default, Apple Mode switches them off and safe mode never starts the source. App Store downloads report a percentage only (the install dump found no byte counts), so the bar shows the percentage and an estimate of the time left, and no sizes or speed. Section 17 is the read-only dump this was designed from.
+Download Progress stage 2. Settings > Insula > **Download Progress** has a new group, **App Store Downloads**, with **Show App Store Downloads**. It needs **Show Download Progress** on too. Both are off by default, Apple Mode switches them off and safe mode never starts the source. App Store downloads report a percentage only (the install dump found no byte counts), so the bar shows the percentage and an estimate of the time left, and no sizes or speed. Section 17 is the read-only dump this was designed from.
 
 | Command | What it does | Where |
 | --- | --- | --- |
@@ -856,11 +856,11 @@ Download Progress stage 2. Settings > OITI > **Download Progress** has a new gro
 
 Steps:
 
-1. Percentage-only look with the test download. Turn on `DownloadTestFractionOnly` (above), leave the size limit on Never, tap **Start Test Download**. Minimal: header `App Store - Test Download`, `Downloading` above the bar, the percentage on the right, nothing on the left, and under the bar `~N s left` (it appears after the percentage has moved a few times). Detailed: a line like `42% · ~1 min left`. At the end `Download complete` and a green bar. The **size** limit does nothing in this mode (set it to 100 MB and check); the **time** limit works. Turn the key off and confirm the byte look is unchanged.
+1. Percentage-only look with the test download. Turn on `DownloadTestFractionOnly` (above), leave the size limit on Never, tap **Start Test Download**. Minimal: header `App Store - Test Download`, `Downloading` above the bar, the percentage on the right, nothing on the left, and under the bar `~N s left` (it appears after the percentage has moved a few times). Detailed: a line like `42% · ~1 min left`. At the end the Minimal text fades into a green check (Detailed: `Download complete`); stop it with **Stop Test Download** instead and the bar turns red with `Cancelled` for a moment. The **size** limit does nothing in this mode (set it to 100 MB and check); the **time** limit works. Turn the key off and confirm the byte look is unchanged.
 2. A real App Store download. Turn on **Show Download Progress** and **Show App Store Downloads**, set DiagnosticsLevel 1, start a new install of a large app (1 GB or more) and stay on the Home Screen. Within about a second the bar should appear with the header `App Store - <app name>`, `Downloading`, a percentage that rises in whole steps and an estimate after a few steps. The log should show `App Store source on`, then `tracking <bundle ID> (<name>) at N% (installPhase=... installState=... ...)`.
 3. Pause: tap the downloading icon to pause. The bar should say `Paused` with no estimate. The log shows `paused at N% (...)`: please report that line, its `progressPaused` and `placeholderPaused` values tell which one reflects a pause. If neither changes the bar will not say Paused and the number just stops; report that too. Resume: `resumed`, and `Downloading` again.
-4. The end: let it finish. Expect `Download complete` for about 3 seconds, then the Island returns to idle, and the log shows `left the placeholder list at N%: complete (app installed: yes)`. Report how long it took from the last percentage change to that line (the earlier dump saw the fraction sit at 76 percent while the install phase changed).
-5. Cancel: start another download and cancel it (press and hold the icon, Cancel Download, or remove the placeholder). The bar should go within about 3 seconds and the log should say `cancelled (app installed: no)`.
+4. The end: let it finish. Expect the completion animation in the Minimal look (the text fades, the bar contracts into a green circle and a white check is drawn in it, about 0.8 s; with Reduce Motion on it appears at once) or `Download complete` in Detailed, held for about 3 seconds, then the Island returns to idle, and the log shows `left the placeholder list at N%: complete (app installed: yes)`. Report how long it took from the last percentage change to that line (the earlier dump saw the fraction sit at 76 percent while the install phase changed).
+5. Cancel: start another download and cancel it (press and hold the icon, Cancel Download, or remove the placeholder). After the 3 s grace the bar turns red with `Cancelled` for about 1.6 s and then goes (Detailed: `Download cancelled`), and the log says `cancelled (app installed: no)`. Switching the feature or the source off mid-download still removes the bar at once (the log says `dropped`).
 6. An app update (Updates tab) and a TestFlight install: report whether the bar appears. If it does not, run the install dump (section 17) with the labels `appstore-update-downloading` and `testflight-installing`: an update of an installed app may not be a placeholder at all.
 7. Two downloads at once: the header reads `2 downloads` (checked; any count above one reads `N downloads`) with the mean percentage.
 8. Switch **Show App Store Downloads** (and then **Show Download Progress**, and **Apple Mode**) off during a download: the bar goes and nothing crashes; on again, it returns while the download is still running.
