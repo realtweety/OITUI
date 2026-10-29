@@ -1,8 +1,8 @@
 # Tellus
 
-**Tellus** (OITUI, *Order In The User Interface*) is my current project: a small family of tweaks that make an iPhone running iOS 16 look and feel as modern as possible. It is built for rootless jailbreaks (Dopamine-style) and made and maintained by me, solo.
+**Tellus** (OITUI, *Order In The User Interface*) is my current project: a small family of tweaks that make an iPhone running iOS 16 look and feel as modern as possible. It is built for rootless jailbreaks and made and maintained by me with help from AI.
 
-Every tweak has two names. The **Latin name** is what you see in Sileo and Settings. The **OIT name** is the technical name that stays in package IDs, files, logs and the docs.
+Every tweak has two names. The **Latin name** is what you see in Sileo and Settings. The **OIT name** is the technical name in package IDs, files, logs and the docs.
 
 | You see | Technical name | What it is |
 | --- | --- | --- |
@@ -21,9 +21,9 @@ Tellus is being developed and tested on an **iPhone 8 Plus** jailbroken with **D
 
 Insula, or Order In The Island, gives devices without a Dynamic Island a Dynamic Island. It is built on Apple's own Island system and does not draw a fake one on top. Insula provides the Island itself and its positioning, appearance, size and scale, and then adds the things that make it useful: notifications in the Island, a startup animation prototype, and download progress.
 
-I am hoping to keep adding quality-of-life features and customization, so recommendations on how to improve and expand Insula are very welcome.
+I am hoping to keep adding quality-of-life features, customization, and more, so recommendations on how to improve and expand Insula are very welcome.
 
-## What it does
+## What Things Does
 
 - **The Island:** turn the Dynamic Island on, move it, and resize or scale it (the width and height scales are relative to Apple's own size, so 1.0 is the stock Island). Colour, opacity and notification banner offsets are adjustable and apply live.
 - **Apple Mode:** one switch that turns every Island customization off at once so you can see how the stock Island behaves. It keeps Enable Dynamic Island, the built-in position and notification fixes, the Status Bar Layout setting and safe mode.
@@ -36,7 +36,7 @@ I am hoping to keep adding quality-of-life features and customization, so recomm
 
 ## Island Notifications
 
-Island Notifications shows each notification banner (Messages, Instagram, YouTube, Snapchat and the rest) as an element in the Island instead of the banner at the top of the screen. The Island expands to fit the app icon, title and message, stays for a few seconds, and goes away. Tap it to open the notification (it goes where tapping the stock banner would go), swipe up to dismiss it.
+Island Notifications shows each notification banner (Messages, Instagram, YouTube, Snapchat, etc) as an element in the Island instead of the banner at the top of the screen. The Island expands to fit the app icon, title and message, stays for a few seconds, and goes away. Tap it to open the notification, swipe up to dismiss it.
 
 It is off by default. Turn it on in **Settings > Insula > Notifications**:
 
@@ -58,7 +58,7 @@ Download Progress shows a download in the Island while it happens. It is off by 
 - **Which downloads:** App Store installs and updates. TestFlight installs have not been tested yet.
 - **Percentage only:** iOS only exposes a percentage for App Store downloads, so there are no sizes or speeds for those. (The built-in test download, started from the same page, does show sizes and speed.)
 - **Going away:** the bar ends when the downloads finish, or after a time limit you set, or when you swipe it away. The download itself carries on.
-- **Browsers:** downloads in Safari, Chrome and Arc are planned for later, as their own project.
+- **Browsers:** downloads in Safari, Chrome, and Arc are planned for later.
 
 <!-- screenshot: the Minimal pill during an App Store download -->
 <!-- gif: the completion animation -->
@@ -76,12 +76,6 @@ defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
 ```
 
 then respring, reproduce the problem and read `/tmp/OITIDebug.log`. At higher levels the log holds the first characters of notification titles and messages, so **read it before you share it**. `DIAGNOSTICS.md` explains the log and the dumps. Set the level back to 0 afterwards.
-
-## Settings attribution
-
-Insula's Settings pages are adapted from [Liquid (Gl)Ass by Winaviation](https://github.com/winaviation-tweaks/liquidass), licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). The pages were modified for Tellus; the upstream author does not endorse Tellus. The full license text is in `Third Party Licenses/LIQUIDASS-LICENSE.txt`.
-
-Insula is a fork of [VisibleIsland](https://github.com/ethxnn88) by ethxnn88, used with written permission.
 
 ---
 
