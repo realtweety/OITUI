@@ -17,8 +17,8 @@
 ## Things I Think Would Be Nice
 
 - **Modular architecture**: split `Tweak.xm` into modules (`Modules/Music`, `Modules/Phone`, etc.)
-  instead of one growing file. **Status:** no modules exist yet. Step 1 added a shared device table
-  (`OITIDeviceProfiles.h`); real modules make sense once the content-injection research is done.
+  instead of one growing file. **Status:** the split is under way (v0.3.0, plan in `OVERVIEW.md`, "The Great Split"): `OITI/Diagnostics/` and `OITI/Shared/` exist after round 1; the other modules follow one per round. Step 1 added a shared device table
+  (`OITIDeviceProfiles.h`).
 - **Device awareness**: done as a table in `OITIDeviceProfiles.h` (17 models, each marked verified or estimated).
   Remaining: entries for iPhone 8 / 8 Plus (needs on-device measurement) and more devices.
 - **Apple Mode vs Enhanced Mode**: done on `experiments` (build `OITI-exp-2026-10-21-b`, tested on-device) as a single `appleMode` switch that forces every Island customization off and keeps Enable Dynamic Island, the built-in position and notification fixes, the Status Bar Layout setting and safe mode.
@@ -104,7 +104,7 @@ on-device measurement, not before.
 
 ## Infrastructure ideas (from the OITI review and Crescendo)
 
-- **Split `Tweak.xm` into module folders** (owner's idea; agreed on 2026-10-28 as the next step before 0.3.0, plan and order in `OVERVIEW.md`, "The Great Split"): for example `OITI/Download Progress/`, `OITI/Resizing/`, `OITI/Notifications/`, `OITI/Startup/`, with a small shared core for logging, preferences and the element machinery. Folder names with spaces are fine for Theos but a nuisance in shell commands, so `DownloadProgress/` is probably better. The work is mostly moving code without changing behavior, which makes it risky in one big step: do it one module at a time with a build and a short device check after each, starting with the most self-contained one (the download tracker and its views, which only touch the element presenter through two calls). The file list lives in `OITI/Makefile` (`OITI_FILES`), and Logos `%hook` groups can sit in `.xm` files in any folder.
+- **Split `Tweak.xm` into module folders** (owner's idea; agreed on 2026-10-28 as the next step before 0.3.0, plan and order in `OVERVIEW.md`, "The Great Split"): for example `OITI/Download Progress/`, `OITI/Resizing/`, `OITI/Notifications/`, `OITI/Startup/`, with a small shared core for logging, preferences and the element machinery. Folder names with spaces are fine for Theos but a nuisance in shell commands, so `DownloadProgress/` is probably better. The work is mostly moving code without changing behavior, which makes it risky in one big step: do it one module at a time with a build and a short device check after each, starting with the most self-contained one (the download tracker and its views, which only touch the element presenter through two calls). The file list lives in `OITI/Makefile` (`OITI_FILES`), and Logos `%hook` groups can sit in `.xm` files in any folder (initialised from a small function in the same file). **Status (2026-10-29):** round 1, Diagnostics, is written (build and device check pending).
 
 - **Respring-loop safe mode**: auto-disable OITI features after repeated respring cycles in a short window.
 - **Startup self-check** for the MobileGestalt spoof: log when `islandEnabled` is on but the cache no longer holds the spoofed value.

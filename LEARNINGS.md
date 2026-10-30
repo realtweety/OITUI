@@ -102,6 +102,14 @@ See `DIAGNOSTICS.md` for the OITS tags, trigger file and commands.
 - New notices evict the oldest at capacity. Each item can expire or be swiped away independently; removing the newest promotes its newest survivor. The expiration timer restarts when an item is demoted to compact or promoted. Tapping opens that notice and leaves it until timeout or swipe.
 - Settings expose `islandNotificationStackEnabled` (default on, to preserve the previous behavior) independently from `islandNotificationsEnabled` (default off). The Settings warning describes the stack as usable but not polished. Turning stacking off retains the newest visible item and clears older ones; new notices replace the previous item.
 
+## Source layout and the module split (v0.3.0)
+
+- Quoted imports in OITI are written relative to the OITI folder (`#import "Shared/OITIShared.h"`) and `OITI_CFLAGS` has `-I.`. Do not use `../` paths: Theos compiles the Logos output, and a relative path from the generated file does not point where the source file sits. The existing `#import "OITIDeviceProfiles.h"` worked for the same reason (the project folder is on the include path).
+- A `static` global or function cannot be shared between `.xm` files. Moving code into its own file means dropping `static` on what other files use and declaring it once in a header (`extern` for variables; for a `const` variable in Objective-C++ the definition needs `extern` too, because `const` alone gives internal linkage).
+- A Logos `%group` can only be initialised (`%init(Group)`) in the file that defines it. To move a group into its own file, add a plain function in that file that calls `%init(Group)` and call that function from `%ctor`.
+- Every source file has to be in `OITI_FILES`; a file left out compiles nothing and fails only at link time.
+- There is no compiler in the chat, so a split is verified with `tools/check_split.py` (`COMMANDS.md`, section 19): it compares the code-only lines of the old and new files, checks that every identifier a new file uses is defined in it or declared in an included header, and optionally runs Logos (github.com/theos/logos) over every file. Selectors sent to a `Class` or `id` also need a visible `@interface`, or the build fails under ARC; that is why Apple's private class declarations live in `Shared/OITIApplePrivate.h`.
+
 ## Build, packaging and tooling pitfalls
 
 - **Theos picks up headers from `$THEOS/include` before your project's.** A stale installed copy shadows your edit. Import the module's own header with quotes (`#import "OITLog.h"`) inside that module, and rebuild OITCore first so the install step refreshes the copy.

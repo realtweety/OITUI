@@ -126,6 +126,8 @@ OITI has the same kind of logging, built on `OITLogger` from OITCore.
 | Install dump keys | `InstallDumpSamples` (0 to 30, default 6), `InstallDumpIntervalSeconds` (1 to 10, default 2), `InstallDumpCallGetters` (default NO: also call declared property getters) |
 | Prefs keys | `DiagnosticsEnabled` (bool, default on), `DiagnosticsLevel` (0–2, **default 0**) |
 
+Where the code lives (since the v0.3.0 split, round 1): `OITI/Diagnostics/OITIDump.xm` (the dump and its helpers), `OITIStatusBarDiagnostic.xm` (STATUSBAR report), `OITIInstallDump.xm` (INSTALL dump) and `OITIDumpTriggers.xm` (trigger files, Darwin notifications, the automatic dump). The `OITIDiagnosticHooks` hook group (level-1 tracing of Apple's Island manager and element authority) is still in `Tweak.xm`. Behavior and log lines did not change.
+
 At level 0 OITI writes only `SESSION`, `GUARD`, `SAFE`, `CHECK` and a few `NOTIF` / `ELEMENT` lines (the two install lines and any failure, see below), about a dozen per boot, and that includes every warning (respring-loop guard, safe mode, MobileGestalt spoof self-check). It runs no polling timer and tracks no windows. Level 1 adds events and state changes (`PREF`, `ISLAND`, `CURTAIN`, `COLOR`, `BANNER`, `GAINMAP`, `TOUCHPASS`), starts the trigger-file poll and takes one baseline dump after the Island first lays out. The aperture research build also logs rate-limited `APERTURE` element-construction and manager-registration events at level 1. Level 2 adds rate-limited per-call lines (`LAYOUT`).
 
 ```

@@ -567,6 +567,7 @@ GitHub shows the tilde in the file name as a dot (`0.2.0.beta.1`); `dpkg` uses t
 - `git branch -d` is the safe delete (it refuses unmerged branches). `-D` forces it, so use it only after a squash-merged pull request.
 - Releases come from the Mac with `FINALPACKAGE=1`. Packages built on the Arch PC print arm64e ABI warnings and should not be published.
 - After a squash merge GitHub deletes `experiments`. Recreate it with the block under "After the merge" before starting new work.
+- Every OITI source file must be listed in `OITI_FILES` in `OITI/Makefile`. A file that is missing from the list builds fine but fails at link time with undefined symbols (the `Diagnostics/` files are listed there since the split's round 1).
 
 ## 12. Status bar layout (red `rdar:45025538` bar) and provider check
 
@@ -866,3 +867,82 @@ Steps:
 8. Switch **Show App Store Downloads** (and then **Show Download Progress**, and **Apple Mode**) off during a download: the bar goes and nothing crashes; on again, it returns while the download is still running.
 
 Report: a bar that never appears (and the `DOWNLOAD` lines), a wrong percentage compared with the icon's ring, an estimate that is far off or jumps, anything that stays on screen after the download is gone, and any respring.
+
+## 19. Module split checks (v0.3.0, one per round)
+
+Each round of the `Tweak.xm` split is built and checked on its own before the next one starts. Behavior must not change, so the check is: it builds, nothing looks different, and the module's own features still work. The build tag stays `OITI-exp-2026-10-26-a` during the split, so tell builds apart by the `[MARK]` lines below.
+
+Before building, run the mechanical check from the repo root (it needs only `python3` and `git`, no phone). `--old HEAD` compares with the last commit, so run it before committing the round; after the commit use `--old HEAD~1`. It must print `RESULT: OK`:
+
+```
+cd ~/OITUI
+python3 tools/check_split.py --old HEAD
+```
+
+Optional extra check (Logos syntax and hook count): `git clone https://github.com/theos/logos ~/logos`, then add `--logos ~/logos/bin/logos.pl`.
+
+Build and install (Arch PC; section 3 has the Mac version). Run `make clean package` first if the build prints errors about missing files: every source file must be listed in `OITI_FILES` in `OITI/Makefile`.
+
+```
+cd ~/OITUI/OITI
+make clean package
+THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222 make package install
+```
+
+### Round 1: Diagnostics (files in `OITI/Diagnostics/`)
+
+Level 0 (normal install). Nothing may look different and no dump machinery may run:
+
+```
+echo "$(date '+%m-%d %H:%M:%S') [MARK] round1-level0" >> /tmp/OITIDebug.log
+sbreload
+```
+
+Wait 15 seconds, then:
+
+```
+sed -n '/round1-level0/,$p' /tmp/OITIDebug.log | grep -E 'SESSION|CHECK|DUMP|STATUSBAR|trigger polling'
+```
+
+Expected: `SESSION` lines ending in `READY hooks installed`, `CHECK` lines, no `trigger polling started` and no `DUMP` lines. Stock look, banners and Settings pages as before.
+
+Level 1 (dumps on):
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
+echo "$(date '+%m-%d %H:%M:%S') [MARK] round1-level1" >> /tmp/OITIDebug.log
+sbreload
+```
+
+Wait 15 seconds, then:
+
+```
+sed -n '/round1-level1/,$p' /tmp/OITIDebug.log | grep -E 'trigger polling started|STATUSBAR (BEGIN|END)|BEGIN #|END #'
+```
+
+Expected: `trigger polling started`, then `STATUSBAR BEGIN reason=boot` and `STATUSBAR END reason=boot`, then an `auto-baseline` dump (`=== BEGIN #1 reason=auto-baseline ===` and its `END`) a few seconds after the Island first lays out.
+
+The dump trigger, the install dump trigger, the Darwin notification and the test element (define `dumpstate` and `installdump` first, sections 6 and 17):
+
+```
+dumpstate round1-dump
+sleep 4
+touch /tmp/OITIPoC.trigger
+sleep 4
+installdump round1-install
+sleep 20
+notifyutil -p com.wilburt.oiti/Dump
+sleep 4
+sed -n '/round1-dump/,$p' /tmp/OITIDebug.log | grep -E 'reason=|=== (BEGIN|END)'
+```
+
+Expected: a `trigger-file` dump (`BEGIN #2` to `END #2`), a hello element on the Island for a few seconds, an `INSTALL` run `=== BEGIN #1 reason=trigger-file ... ===` through its `END`, and a `darwin-notification` dump. Then compare one dump with an older one: `grep -c METRICS /tmp/OITIDebug.log` should be well above zero and the `METRICS multiplier` line should show your Island size settings.
+
+Back to normal:
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0
+sbreload
+```
+
+Report: a build error (the first lines of it), a missing expected line above, a dump that never starts, or anything on screen that looks different from before the split.

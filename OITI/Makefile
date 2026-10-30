@@ -7,7 +7,8 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = OITI
 
 OITI_FILES = Tweak.xm
-OITI_CFLAGS = -fobjc-arc
+OITI_FILES += Diagnostics/OITIDump.xm Diagnostics/OITIStatusBarDiagnostic.xm Diagnostics/OITIInstallDump.xm Diagnostics/OITIDumpTriggers.xm
+OITI_CFLAGS = -fobjc-arc -I.
 OITI_FRAMEWORKS = UIKit AVFoundation
 OITI_LDFLAGS += $(THEOS)/lib/iphone/rootless/OITCore.dylib
 
