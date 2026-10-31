@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Checks a Tweak.xm module-split round without a compiler (v0.3.0 split; see OVERVIEW.md, "The Great Split").
 
-    python3 tools/check_split.py [--old REV] [--logos PATH_TO_logos.pl]
+    python3 tools/check_split.py [--old REV] [--logos PATH_TO_logos.pl] [--allow-wrapper NAME ...]
 
 Run it from the repo root before committing a round. REV is the commit that holds the code before the round
 (default HEAD; use HEAD~1 once the round is committed). It reads every OITI source file (.xm .mm .m .h, not the
@@ -15,6 +15,9 @@ prefs bundle or the helper tool) at REV and in the working tree and checks three
               file or declared in a header the file imports (directly or through other headers).
   3. LOGOS    With --logos, every .xm must pass through Logos without errors (github.com/theos/logos, bin/logos.pl),
               and the number of generated hook functions must equal the old one.
+
+--allow-wrapper NAME  a new `void NAME(void) { %init(Group); }` function that a round added so a Logos group can be
+              initialised from the %ctor in another file (round 3 on). Give it once per wrapper.
 
 Exit status 0 = no problem found. It does not replace the build; it catches what a build would fail on.
 """
@@ -76,21 +79,25 @@ def multiset(sources):
     return c
 
 # ---------------------------------------------------------------------------------------------------------------
-def check_lines(old, new):
+def check_lines(old, new, wrappers=()):
     only_old = multiset(old) - multiset(new)
     only_new = multiset(new) - multiset(old)
     def key(l):  # normal form for pairing: without a leading static/extern
         return re.sub(r'^(static|extern) ', '', l)
     paired = 0
     for l in list(only_old):
-        for m in list(only_new):
+        for m in sorted(only_new, key=lambda x: x.startswith('extern ')):   # a definition pairs before a declaration
             if key(l) == key(m) and only_old[l] > 0 and only_new[m] > 0:
                 n = min(only_old[l], only_new[m]); only_old[l] -= n; only_new[m] -= n; paired += n
     problems = []
+    allowed_heads = {'void %s(void) {' % w for w in wrappers}
+    allowed_closers = len(wrappers)      # each wrapper function ends with one lone '}'
     for l, n in only_old.items():
         if n > 0: problems.append('UNEXPECTED (only in old) x%d: %s' % (n, l[:150]))
     for l, n in only_new.items():
         if n <= 0: continue
+        if l in allowed_heads: continue
+        if l == '}' and n <= allowed_closers: continue
         if l.startswith('#import ') or re.match(r'^(extern )?[A-Za-z_].*\)\s*;$', l) or l.startswith('extern '):
             continue          # imports, prototypes, extern declarations
         problems.append('UNEXPECTED (only in new) x%d: %s' % (n, l[:150]))
@@ -203,11 +210,11 @@ def check_logos(logos, old, new):
     return problems
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('--old', default='HEAD'); ap.add_argument('--logos')
+    ap = argparse.ArgumentParser(); ap.add_argument('--old', default='HEAD'); ap.add_argument('--logos'); ap.add_argument('--allow-wrapper', action='append', default=[], metavar='NAME')
     a = ap.parse_args()
     old, new = old_sources(a.old), new_sources()
     print('old: %d files at %s; new: %d files' % (len(old), a.old, len(new)))
-    problems = check_lines(old, new) + check_symbols(old, new)
+    problems = check_lines(old, new, a.allow_wrapper) + check_symbols(old, new)
     if a.logos: problems += check_logos(a.logos, old, new)
     for p in problems: print('  ' + p)
     print('RESULT:', 'OK' if not problems else 'PROBLEMS FOUND')

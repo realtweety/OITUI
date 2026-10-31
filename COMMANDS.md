@@ -872,7 +872,7 @@ Report: a bar that never appears (and the `DOWNLOAD` lines), a wrong percentage 
 
 Each round of the `Tweak.xm` split is built and checked on its own before the next one starts. Behavior must not change, so the check is: it builds, nothing looks different, and the module's own features still work. The build tag stays `OITI-exp-2026-10-26-a` during the split, so tell builds apart by the `[MARK]` lines below.
 
-Before building, run the mechanical check from the repo root (it needs only `python3` and `git`, no phone). `--old HEAD` compares with the last commit, so run it before committing the round; after the commit use `--old HEAD~1`. It must print `RESULT: OK`:
+Before building, run the mechanical check from the repo root (it needs only `python3` and `git`, no phone). `--old HEAD` compares with the last commit, so run it before committing the round; after the commit use `--old HEAD~1`. If several rounds are ever left uncommitted, `HEAD` stays at the last commit, so the check covers every round since then and needs one `--allow-wrapper NAME` for each `%init` wrapper added in those rounds (so far `OITIInstallIslandSizeHooks`, `OITIInstallResearchHooks` and `OITIInstallDiagnosticHooks`). It must print `RESULT: OK`:
 
 ```
 cd ~/OITUI
@@ -946,3 +946,64 @@ sbreload
 ```
 
 Report: a build error (the first lines of it), a missing expected line above, a dump that never starts, or anything on screen that looks different from before the split.
+
+### Round 2: DownloadProgress (files in `OITI/DownloadProgress/`)
+
+Run the check and the build from the top of this section. The full download checks are sections 16 and 18; this is the short version. Settings > Insula > **Download Progress** has the switches. Nothing may look or behave differently from before the split.
+
+1. Switch **Show Download Progress** off (the default). Open the Download Progress page and the Style picker: no crash, and the Island looks stock.
+2. Switch it on, Style **Minimal**, test size 800 MB, tap **Start Test Download**. The black pill appears under the Island, the bar runs with speed, size and percentage, and at the end it turns into the green check and goes away.
+3. Start another test and swipe the pill up: it goes and stays away. **Start Test Download** while it runs brings it back. **Stop Test Download** removes it at once.
+4. Style **Detailed**, start a test: an Island element with the app icon, the headline and the bar with its text line; at the end it turns green with `Download complete`, then the Island returns to idle.
+5. Switch **Show Download Progress** off during a test (the bar goes), on again (it returns); the same with **Apple Mode**.
+6. Switch **App Store Downloads** on. Start a real App Store download (a small free app): the percentage follows the App Store's. Pause it, resume it, cancel a second one, let a third finish. Each ends the way section 18 describes.
+7. With Island Notifications on and Style **Detailed**, send a notification during a test download: the stack behaves as before the split.
+
+```
+grep DOWNLOAD /tmp/OITIDebug.log | tail -30
+```
+
+Expected: `DOWNLOAD started`, `progress element up` (Detailed) and `finished` or `cancelled` lines for each run above, and no `the system ended it` line.
+
+Report: a build error (the first lines), a step above that behaves differently from before the split, or a crash or respring.
+
+### Round 3: IslandSize (file in `OITI/IslandSize/`)
+
+Run the check (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallIslandSizeHooks`) and the build from the top of this section. This module is the Island's position, size, scale and appearance, so a visual pass is the check: for each step, compare with how it looked before the split. Settings > Insula, main page unless a page is named.
+
+1. Every setting at its default (or **Apple Mode** on): the Island looks stock, and a banner drops from the stock position.
+2. **Scale** page, **Island Size**: drag **Island Width** and **Island Height**; the Island resizes live without a respring and returns to stock at 1.0 (**Reset Island Size to 1.0**).
+3. **Scale** page, **Custom Island Scale**: switch on **Use Custom Scale** and drag **Width (X)** and **Height (Y)**; the whole Island scales around Apple's own size and returns at 1.0 (**Reset Width and Height to 1.0**).
+4. **Fix Island Position** on and off. Then **Custom Island Positioning**: **Use Custom Position** with **X Position:** and **Y Position:**, and **Save**.
+5. **Notifications** page: **Fix Notification Positioning**, then **Custom Notification Positioning** (**Use Custom Notification Position**, X and Y, **Save**). Send yourself a notification; the banner appears where the setting says.
+6. **Color and Opacity** page: **Use Custom Color** with Red, Green and Blue, and **Use Custom Opacity**. Both apply live and switch off cleanly. Main page, **Misc**: **Hide When Not in Use** and **Disable Island Outline**, each on and off.
+7. **Apple Mode** on: every customization above is off; the built-in position and notification fixes stay.
+
+```
+echo "$(date '+%m-%d %H:%M:%S') [MARK] round3" >> /tmp/OITIDebug.log
+sbreload
+sleep 15
+sed -n '/round3/,$p' /tmp/OITIDebug.log | grep -E 'SESSION|CHECK|ERROR|WARN'
+```
+
+Expected: `SESSION` lines ending in `READY hooks installed`, and no new `ERROR` or `WARN` lines.
+
+Report: a build error (the first lines), a step above that behaves differently from before the split, or a crash or respring.
+
+### Round 4: IslandNotifications (files in `OITI/IslandNotifications/`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallResearchHooks --allow-wrapper OITIInstallDiagnosticHooks`). This is the biggest module, so the check is longer. Settings > Insula > **Notifications**; section 13 has the details.
+
+1. Switch **Show Notifications in the Island** on, Style Expanded. Run the regression checklist of section 13, steps 1 to 6: two notifications close together, four and then a fifth, swipe the newest and an older one, tap one (it opens the matching app and stays swipeable), Compact style, **Stack Multiple Notifications** off and on, Island Notifications off (the stack clears, new notifications use the stock banner).
+2. **Hide the Stock Banner** on: the stock banner fades while the Island element shows; off: it comes back. Check **Notification Haptic**, the duration, the message lines and the roundness slider once each.
+3. Section 15 (crash recovery): steps 1 to 3 and the negative check in step 7 (OITI's own Respring does not start the 120 second window).
+4. Detailed download with a notification: start a test download in the Detailed look, send a notification; the stack behaves as before the split.
+5. Level 1 (`DiagnosticsLevel` 1, `sbreload`): `touch /tmp/OITIPoC.trigger` shows the test element, and one real notification logs `AUTH` lines (the diagnostic hook group).
+
+```
+grep -E 'STACK|AUTH|TAP|SWIPE|GUARD caught|RECOVERY|banner request|registered' /tmp/OITIDebug.log | tail -40
+```
+
+Expected: the same kinds of lines as before the split (`banner request` and `registered` per notification, `TAP` after a tap, `SWIPE` after a swipe, `AUTH` at level 1) and no `GUARD caught`.
+
+Report: a build error (the first lines), a step above that behaves differently from before the split, or a crash or respring.

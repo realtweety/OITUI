@@ -8,6 +8,10 @@ TWEAK_NAME = OITI
 
 OITI_FILES = Tweak.xm
 OITI_FILES += Diagnostics/OITIDump.xm Diagnostics/OITIStatusBarDiagnostic.xm Diagnostics/OITIInstallDump.xm Diagnostics/OITIDumpTriggers.xm
+OITI_FILES += DownloadProgress/OITIDownloadViews.xm DownloadProgress/OITIDownloadTracker.xm DownloadProgress/OITIAppStoreSource.xm
+OITI_FILES += IslandSize/OITIIslandHooks.xm
+OITI_FILES += IslandNotifications/OITINoticePresenter.xm IslandNotifications/OITINoticeSupport.xm IslandNotifications/OITINoticeElement.xm
+OITI_FILES += IslandNotifications/OITINoticeViews.xm IslandNotifications/OITIBannerHide.xm IslandNotifications/OITINoticeActions.xm IslandNotifications/OITINotificationHooks.xm
 OITI_CFLAGS = -fobjc-arc -I.
 OITI_FRAMEWORKS = UIKit AVFoundation
 OITI_LDFLAGS += $(THEOS)/lib/iphone/rootless/OITCore.dylib
