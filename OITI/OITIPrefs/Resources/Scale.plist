@@ -78,7 +78,7 @@
         <key>label</key>
         <string>Custom Island Scale</string>
         <key>footerText</key>
-        <string>Scales the Island and everything in it together, separately in width (X) and height (Y). Contents are stretched with it, so extreme values distort icons and text. Setting a custom position is recommended. For a smaller Island with normal-size contents, use Island Size above instead.</string>
+        <string>Scales the Island and everything in it together, separately in width (X) and height (Y). 1.0 is Apple's own size, so turning this on at 1.0 changes nothing. Contents are stretched with it, so extreme values distort icons and text. Setting a custom position is recommended. For a smaller Island with normal-size contents, use Island Size above instead.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -110,7 +110,7 @@
         <key>defaults</key>
         <string>com.wilburt.oiti.prefs</string>
         <key>key</key>
-        <string>scaleX</string>
+        <string>RelativeScaleX</string>
         <key>min</key>
         <real>0.5</real>
         <key>max</key>
@@ -136,7 +136,7 @@
         <key>defaults</key>
         <string>com.wilburt.oiti.prefs</string>
         <key>key</key>
-        <string>scaleY</string>
+        <string>RelativeScaleY</string>
         <key>min</key>
         <real>0.5</real>
         <key>max</key>

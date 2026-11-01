@@ -7,7 +7,16 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = OITI
 
 OITI_FILES = Tweak.xm
-OITI_CFLAGS = -fobjc-arc
+OITI_FILES += Diagnostics/OITIDump.xm Diagnostics/OITIStatusBarDiagnostic.xm Diagnostics/OITIInstallDump.xm Diagnostics/OITIDumpTriggers.xm
+OITI_FILES += DownloadProgress/OITIDownloadViews.xm DownloadProgress/OITIDownloadTracker.xm DownloadProgress/OITIAppStoreSource.xm
+OITI_FILES += IslandSize/OITIIslandHooks.xm
+OITI_FILES += IslandNotifications/OITINoticePresenter.xm IslandNotifications/OITINoticeSupport.xm IslandNotifications/OITINoticeElement.xm
+OITI_FILES += IslandNotifications/OITINoticeViews.xm IslandNotifications/OITIBannerHide.xm IslandNotifications/OITINoticeActions.xm IslandNotifications/OITINotificationHooks.xm
+OITI_FILES += Startup/OITIStartupHello.xm
+OITI_FILES += StatusBar/OITIStatusBarProvider.xm
+OITI_FILES += Shared/OITIState.xm Shared/OITIPreferences.xm Safety/OITISafety.xm
+OITI_FILES += Shared/OITIRuntimeHelpers.xm
+OITI_CFLAGS = -fobjc-arc -I.
 OITI_FRAMEWORKS = UIKit AVFoundation
 OITI_LDFLAGS += $(THEOS)/lib/iphone/rootless/OITCore.dylib
 

@@ -328,8 +328,19 @@ If the Island looks broken, run the "Back to Apple's own size" block. If SpringB
 | `rm /var/mobile/Library/Preferences/OITISafeMode.plist` | Clears safe mode. Respring afterwards. | Phone |
 | `rm -f /var/mobile/Library/Preferences/OITISafeMode.plist /var/mobile/Library/Preferences/OITIBootLog.plist` | Clears safe mode and the launch history. Respring afterwards. | Phone |
 | `grep -e GUARD -e SAFE /tmp/OITIDebug.log` | The guard's decisions. | Phone |
+| `cat /var/mobile/Library/Preferences/OITIRespringIntent.plist` | The marker OITI's settings leave just before they respring (Respring button, Clear Safe Mode). The guard deletes it on the next launch, so an error here is normal. † | Phone |
 
-Deliberately trip the guard (†). This fakes four recent launches, so the next respring is the fifth:
+Safe mode also shows as a banner at the top of every OITI settings page, with a **Clear Safe Mode & Respring** button (`experiments` build `OITI-exp-2026-10-20-a`). A respring started from OITI's own Respring button or that button is not counted as a possible crash: the guard logs `respring requested from OITI settings N s ago: launch not counted, history cleared`. A respring from anywhere else (`sbreload`, another tweak, Dopamine) still counts.
+
+Test the marker. After each respring wait for the Island, then reopen Settings > Insula and tap Respring again. Do this six times about 20 seconds apart, then:
+
+```
+grep -e GUARD -e SAFE /tmp/OITIDebug.log | tail -n 20
+```
+
+Every launch after the first should say `launch not counted`, and there should be no `TRIPPED`. Then check that a real loop is still caught: run `sbreload` over SSH five times, about 10 seconds apart. The fifth launch should log `TRIPPED`, OITI's changes disappear, and the banner appears on the settings pages. Tap **Clear Safe Mode & Respring** and confirm OITI's changes return.
+
+Deliberately trip the guard. This fakes four recent launches, so the next respring is the fifth:
 
 ```
 NOW=$(date +%s)
@@ -407,11 +418,11 @@ Save your work on `experiments`:
 Unpack a downloaded file bundle (run from any folder):
 
 ```
-tar -xzf "$(ls -t ~/Downloads/oitui-*.tar.gz | head -n 1)" -C ~/OITUI
+tar -xzf "$(command ls -t ~/Downloads/oitui-*.tar.gz | head -n 1)" -C ~/OITUI
 ```
 
 ```
-tar -xzf "$(ls -t ~/Downloads/oitui-*.tar.gz | head -n 1)" -C ~/theos-projects/OITUI
+tar -xzf "$(command ls -t ~/Downloads/oitui-*.tar.gz | head -n 1)" -C ~/theos-projects/OITUI
 ```
 
 The first is for the Arch PC, the second for the Mac. Each unpacks the newest `oitui-*.tar.gz` in Downloads into the repo.
@@ -454,7 +465,7 @@ One-time repository settings (†). Allows only squash merges and deletes merged
 gh api -X PATCH repos/realtweety/OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases are created only from tested work on `main`. Build on the **Mac**, ship OITCore and OITI together, and do not ship OITS until it is verified. The current release is `v0.2.0` (OITI package version `0.2.0`; OITCore remains `0.1.0`).
+Releases are created only from tested work on `main`. Build on the **Mac**, ship OITCore and OITI together, and do not ship OITS until it is verified. The current release is `v0.2.5` (OITI package version `0.2.5`; OITCore remains `0.1.0`).
 
 After the PR is merged, run on the Mac from a clean checkout of `main`:
 
@@ -491,12 +502,12 @@ dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb
 sbreload
 ```
 
-Then check the Island, the settings pages and the sliders. When it all works, publish from the Mac. For `v0.2.0`:
+Then check the Island, the settings pages and the sliders. When it all works, publish from the Mac. For `v0.2.5`:
 
 ```
-git tag -a v0.2.0 -m "OITUI 0.2.0"
-git push origin v0.2.0
-gh release create v0.2.0 --title "OITUI 0.2.0" --notes-file RELEASE_NOTES_0.2.0.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
+git tag -a v0.2.5 -m "OITUI 0.2.5"
+git push origin v0.2.5
+gh release create v0.2.5 --title "OITUI 0.2.5" --notes-file RELEASE_NOTES_0.2.5.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
 ```
 
 | Command | What it does | Where |
@@ -556,6 +567,7 @@ GitHub shows the tilde in the file name as a dot (`0.2.0.beta.1`); `dpkg` uses t
 - `git branch -d` is the safe delete (it refuses unmerged branches). `-D` forces it, so use it only after a squash-merged pull request.
 - Releases come from the Mac with `FINALPACKAGE=1`. Packages built on the Arch PC print arm64e ABI warnings and should not be published.
 - After a squash merge GitHub deletes `experiments`. Recreate it with the block under "After the merge" before starting new work.
+- Every OITI source file must be listed in `OITI_FILES` in `OITI/Makefile`. A file that is missing from the list builds fine but fails at link time with undefined symbols (the `Diagnostics/` files are listed there since the split's round 1).
 
 ## 12. Status bar layout (red `rdar:45025538` bar) and provider check
 
@@ -565,19 +577,24 @@ Build `0.1.1` (tag `OITI-0.1.1-rc1`) has a **Status Bar Layout** picker at the b
 | --- | --- | --- |
 | `grep -e SESSION -e SAFE /tmp/OITIDebug.log` | Shows the build tag and whether hooks are installed. Look for `READY hooks installed` and no `SAFE MODE`. | Phone |
 | `grep CHOICE /tmp/OITIDebug.log` | The provider UIKit chose, what OITI returned and why. Works at level 0. | Phone |
+| `grep LEARN /tmp/OITIDebug.log` | Whether this phone recorded its own native provider this launch, or why not. Level 0. † | Phone |
+| `cat /var/mobile/Library/Preferences/OITINativeProvider.plist` | The recorded native provider (machine, provider, nativeBounds, os, build, time). Absent until a launch with the Island off has built a status bar. † | Phone |
 | `grep STATUSBAR /tmp/OITIDebug.log \| tail -90` | The whole report, including `LIVE`, `LAYOUT` and `PROVIDER` lines. Needs level 1 (`DiagnosticsLevel`, section 5). | Phone |
 
 Wait at least 2 minutes between resprings so the respring-loop guard (section 7) does not trip. If it does, clear it with the `rm` row in section 7 and respring once.
 
 **Someone reports the red bar.**
 1. They install the `.deb` and respring once. Automatic is the default.
-2. If it is still red or looks wrong: Settings > OITI > Status Bar Layout, pick another layout, tap Respring, wait 2 minutes.
+2. If it is still red or looks wrong: Settings > Insula > Status Bar Layout, pick another layout, tap Respring, wait 2 minutes.
 3. They run `grep CHOICE /tmp/OITIDebug.log` and send the output.
 
 **Reading a `CHOICE` line.**
 - `UIKit chose X`: the provider iOS picked for this screen. With the Island off this is the device's native provider; write it down. `nil` with the Island on is what the red bar looks like.
 - `-> returning Y`: what OITI returned, with the decision text. `auto replaced ...` means OITI substituted the native provider.
-- To read a device's native provider: set Enable Dynamic Island off, respring, and read the line with `islandEnabled=0`. Add it to `OITINativeProviderNameForScreen` in `Tweak.xm`.
+- The decision text ends with `[native provider from learned record]`, `[... from table]` or `[... from width guess]`: which source gave the native provider `auto` used.
+- To read a device's native provider: set Enable Dynamic Island off, respring, and read the line with `islandEnabled=0` (or read `OITINativeProvider.plist`, which holds the same answer once a launch with the Island off has built a status bar). The table in `OITINativeProviderNameForScreen` in `Tweak.xm` only needs an entry for a device whose log shows something the learned record cannot give.
+
+**Reading a `LEARN` line** (†, build `OITI-exp-2026-10-20-b`). `LEARN recorded: native provider for <machine> is <class>` means the record was written; `LEARN record already holds ...` means nothing changed. `LEARN skipped: ...` says why nothing was recorded: the phone is not in the device table (an iPhone 8 Plus, for example: the line proves the code ran and nothing changes), UIKit chose nil or Fallback, a `UIStatusBarVisualProviderClassName` override is set, the MobileGestalt cache holds the spoofed 2556, or the cache is unreadable. Nothing is recorded in a launch that started with the Island on: turn the Island off, respring once and wait for the Island-off launch to finish building the status bar, then turn it back on. Delete the plist to forget the record (`rm /var/mobile/Library/Preferences/OITINativeProvider.plist`); it is not removed on uninstall.
 
 **To set the layout from a terminal instead of the picker:**
 
@@ -589,7 +606,7 @@ Valid values are `auto`, `off`, or a `_UIStatusBarVisualProvider_*` class name f
 
 ## 13. Island Notifications (OITI 0.2.0)
 
-Island Notifications shows each notification banner as an Island element. It is off by default. The switches and sliders are on Settings > OITI > Notifications and write the domain `com.wilburt.oiti.prefs`. Everything except the install lines below needs the Island on (OITI's spoof or real hardware); otherwise the stock banner stays.
+Island Notifications shows each notification banner as an Island element. It is off by default. The switches and sliders are on Settings > Insula > Notifications and write the domain `com.wilburt.oiti.prefs`. Everything except the install lines below needs the Island on (OITI's spoof or real hardware); otherwise the stock banner stays.
 
 | Key | Meaning |
 | --- | --- |
@@ -691,3 +708,365 @@ Stop the Island element from running at all (turn both switches off in settings,
 defaults write com.wilburt.oiti.prefs islandNotificationsEnabled -int 0
 ```
 
+
+## 14. Live settings check (builds `OITI-exp-2026-10-21-a` and `-b`)
+
+Color, opacity, outline hiding and the custom banner position now apply while the setting changes, with no respring. The Island has to be on screen to see the first three, so start a timer first (Clock app, or ask Siri for one).
+
+1. Settings > Insula > Color and Opacity. Turn on **Use Custom Color** and drag Red, Green and Blue: the Island background should follow the slider while it moves. Turn the switch off: the Island goes back to black.
+2. Turn on **Use Custom Opacity** and drag **Opacity** (the slider used to be labelled "Blue"). The Island should fade and change as you drag, then return to normal when the switch goes off. The same slider also sets the custom color's alpha when Use Custom Color is on.
+3. Root page: switch **Disable Island Outline** on and off. The outline should hide and come back live.
+4. Settings > Insula > Notifications: turn on **Use Custom Notification Position** and change X and Y. A banner window that already exists moves immediately; otherwise the next banner appears at the new position. Turning the custom position **off** only takes effect on the next banner, because OITI does not know the original frame.
+
+5. Bottom of the main OITI page: the line under the credit should read `OITI version 0.2.0-1+debug` for a debug build, or `0.2.0` for a release package. It comes from the package database (`/var/jb/var/lib/dpkg/status`). If Settings is not allowed to read that file it shows the version taken from `control` at build time with `(built-in)` after it, which for a debug build lacks the `-1+debug` part.
+
+6. Settings > Insula > Scale, **Use Custom Scale** (build `OITI-exp-2026-10-21-b`). The width and height sliders are relative to Apple's size now, so 1.0 is the stock Island. With the switch on and both sliders at 1.0, the Island must look the same as with the switch off, **position included**: turn it on and off and confirm nothing moves. Then change the sliders: below 1.0 shrinks the Island and its content, above 1.0 grows them. **Reset Scale** puts both back to 1.0. Anyone who had Custom Scale on before this build starts at 1.0 (the old values are not carried over).
+7. Apple Mode, main page, the switch under **Enable Dynamic Island**. Set a few customizations first (a custom color, Island size 0.65 / 0.70, Use Custom Position, Island Notifications on). Turn **Apple Mode** on: a blue banner appears at the top of every page, and the Island should go back to the stock iOS one without a respring (custom color and size gone, notification stack cleared, banners back to the system banner). **Fix Island Position**, **Enable Dynamic Island**, Status Bar Layout and safe mode must keep working as set. On another page the banner has **Turn Off Apple Mode**. Turn it off and every customization must return exactly as it was. Log lines: `grep -e "Apple Mode" /tmp/OITIDebug.log` shows `PREF Apple Mode ON: ...` and `OFF`.
+
+Check the log (level 1 shows COLOR, level 2 shows TOUCHPASS):
+
+```
+grep -e COLOR -e TOUCHPASS -e PREF /tmp/OITIDebug.log | tail -n 20
+```
+
+Report anything that only changes after a respring, and anything that fails to return to stock when its switch is turned off.
+
+## 15. Element crash recovery check (build `OITI-exp-2026-10-21-c`)
+
+While an OITI Island element is on screen, `/var/mobile/Library/Preferences/OITILiveElement.plist` exists. If SpringBoard ends while it does, the next launch keeps Island notifications and the startup animation off for 120 seconds and uses the stock banner. Test it by killing SpringBoard on purpose while a notice is showing.
+
+| Command | What it does | Where |
+| --- | --- | --- |
+| `cat /var/mobile/Library/Preferences/OITILiveElement.plist` | The breadcrumb: time, pid, reason, build. Present only while an element is live. | Phone |
+| `grep RECOVERY /tmp/OITIDebug.log` | The recovery decisions. Level 0. | Phone |
+| `killall -9 SpringBoard` | Simulates a crash. | Phone |
+
+Steps:
+
+1. Settings > Insula > Notifications: turn **Island Notifications** on and set the duration to 15 seconds. Make sure Apple Mode is off.
+2. Over SSH, confirm the breadcrumb is absent: `cat /var/mobile/Library/Preferences/OITILiveElement.plist` should say no such file.
+3. Type `killall -9 SpringBoard` in the SSH session but do not press Enter. Make a notification arrive (a message from another device, or a timer). While the Island notice is showing, press Enter. In a second SSH session you can also check that the breadcrumb exists during the notice.
+4. After the respring, wait for the Island and log in again: `grep RECOVERY /tmp/OITIDebug.log | tail -n 5` should show `RECOVERY the previous SpringBoard ended while an OITI Island element was live`, and no breadcrumb file should exist.
+5. Within 120 seconds, make another notification arrive. It must appear as the **stock banner**, and the log should show `RECOVERY: notification is not shown as an Island element (N s left)`. Everything else in OITI (position, size, color) keeps working.
+6. After 120 seconds, a new notification must be an Island notice again, and the log shows `RECOVERY window is over`.
+7. Negative check: with a notice on screen, use OITI's own **Respring** button. The log should say `RECOVERY not needed: SpringBoard was restarted from OITI's settings`, and the first notification afterwards must be an Island notice at once.
+8. Check that a normal notice that expires on its own leaves no breadcrumb: wait for it to disappear, then `cat` the file again (no such file).
+
+Note: a respring from anywhere other than OITI's settings while a notice is on screen (`sbreload`, another tweak) also counts as a dirty exit and opens the window. That is expected and costs only 120 seconds of stock banners.
+
+## 16. Download progress check (builds `OITI-exp-2026-10-21-d` to `-j`)
+
+Stage 1 has one source, a simulated download (stage 2 adds App Store downloads and the percentage-only look: section 18). Settings > Insula > **Download Progress** has the switch, the two return-to-idle limits, the test size and the Start and Stop buttons. Everything is off by default, and Apple Mode hides it.
+
+| Command | What it does | Where |
+| --- | --- | --- |
+| `grep DOWNLOAD /tmp/OITIDebug.log` | Start, finish, limit and removal decisions. Level 0. | Phone |
+
+Steps:
+
+1. Turn on **Show Download Progress**, leave both limits on Never, set the test size to 800 MB, tap **Start Test Download**. With Style **Minimal** (the default; OITI's own pill since build `-h`, matched to the Island since `-j`) a black pill should grow from the top of the Island, starting at the Island's own top edge and centered on it, with the Island's height kept empty at the top (like the expanded Island's sensor row) and, under it, as the owner designed it: the header `App Store - Test Download` centered; the downloaded size centered above the bar; the row with the speed on the left of the bar, the rounded blue bar in the middle and the percentage on the right; and the total size centered under the bar. An unknown total shows `?` and an unknown percentage `…`. The numbers update about twice a second, with the speed drifting between about 2 and 28 MB/s. **Settings > Insula > Download Progress > Minimal Size** has **Width**, **Bottom padding** and **Move up or down** sliders that apply while the pill is showing. Play music or start a timer first and check that the pill still covers the Island completely and lines up with its top edge. The log says how the Island was found: `grep DOWNLOAD /tmp/OITIDebug.log | tail -n 6` shows `island={{x, y}, {w, h}} (the Island's pill view (N candidates) | computed from the stock size ...) -> pill={...}`. If the pill's top edge does not line up with where the Island is, send that line and what you see, or use **Move up or down** meanwhile. Swipe the pill up to dismiss it. If no pill appears at all (build `-h` showed nothing), run `grep DOWNLOAD /tmp/OITIDebug.log | tail -n 15` and send the output. Build `-i` creates the pill's window in the Island's own window scene and writes `progress pill up for ...` plus two `pill shown:` and `pill 0.8 s later:` lines with the window's hidden flag, scene, level, whether the pill is in that window, its alpha and its frame, which says exactly why it is or is not on screen. If even `test download started` is missing from the log, the Start button never reached SpringBoard (check for a safe-mode banner or Apple Mode). **The bar must stay on screen well past your Island Notifications duration**: in build `-d` it disappeared after about that many seconds because the system's own alert timer ended it and OITI was never told. Leave the test running for a full minute and watch.
+2. Let it finish: the bar turns green with `Download complete · 800 MB` for about 3 seconds, then the Island returns to idle. Check the compact state too (for example, open an app so the Island shows compact): it should show the app icon and a percentage.
+3. Return to idle by size: set **After this much is downloaded** to 100 MB and start a test. At about 100 MB the Island should go idle and the log should say `limit reached (... downloaded)`. The download carries on in the background. Tap Start again after Stop: the bar returns.
+4. By time: set the size limit back to Never, **After this long on screen** to 20 s, start a test. The Island should go idle after 20 seconds.
+5. Swipe the bar up: it must go away and stay away until the next Start. Tapping **Start Test Download** while the test is still running counts as a next start and brings the bar back.
+6. **Stop Test Download** while the bar is up: it should disappear at once.
+7. Switch **Show Download Progress** off during a test: the bar goes. Switch it back on: it returns, because the test is still running. Do the same with **Apple Mode**.
+8. With Island Notifications on, let a notification arrive during a test. Note what happens (the download should become a compact card or be replaced, depending on the stack setting; see the known limits in `OVERVIEW.md`) and report anything odd.
+9. Crash check: during a test run `killall -9 SpringBoard`. After the respring there is no bar (the test lives in memory), and the log should show the element recovery line from section 15.
+
+10. Settings no longer crash when a choice is picked (the Style picker here, **Style** on the Notifications page and **Status Bar Layout** on the main page all crashed Settings before, because the choice row kept its label and its specifier under one key). Pick a value in each and confirm Settings stays open and shows the new choice. Then switch **Style** to Detailed during a test: the bar should be replaced by the larger one with the name "Test Download" and a line like `212 MB of 800 MB · 9.4 MB/s`. Switch back to Minimal.
+11. If the bar ever disappears on its own, `grep DOWNLOAD /tmp/OITIDebug.log` should show `the progress element left the screen after N s but nothing in OITI removed it, so the system ended it (drop 1 of 5)`, and the bar comes back after 1.5 s (then 4.5, 13.5 and 30 s on later drops, and it stops after five). Report that line and its time.
+
+Report: layout problems (clipped text, bar too tall or too short), a speed or size that looks wrong, anything that stays on screen after Stop, and any stutter in other Island animations while the bar updates.
+
+## 17. Install progress dump (build `OITI-exp-2026-10-24-c`)
+
+Download Progress stage 2, step 1: a read-only dump of what SpringBoard exposes about a real install. It does not change anything on screen and needs `DiagnosticsLevel` 1. Line format and how to read it: `DIAGNOSTICS.md`, "OITI install progress dump". The output carries the tag `INSTALL`.
+
+Set up once. Turn Auto-Lock off for the test (Settings > Display & Brightness > Auto-Lock > Never) so the screen stays on while the samples run, and keep the phone on the Home Screen page that shows the downloading icon.
+
+| Command | What it does | Where |
+| --- | --- | --- |
+| `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1` | Turns dumps on. | Phone |
+| `sbreload` | Applies it. Wait about 10 seconds afterwards. | Phone |
+| `defaults write com.wilburt.oiti.prefs InstallDumpSamples -int 6` | Samples after the snapshot (default 6, 0 to 30). | Phone |
+| `defaults write com.wilburt.oiti.prefs InstallDumpIntervalSeconds -float 2` | Seconds between samples (default 2, 1 to 10). | Phone |
+| `defaults write com.wilburt.oiti.prefs InstallDumpCallGetters -bool true` | Second pass only: also call declared property getters of private objects. Default off; build `-a` crashed SpringBoard calling methods by name. Leave it off for the first runs. | Phone |
+
+Define the helper once per SSH login. It is forgotten when you log out, so define it again after reconnecting (a respring alone does not end your session). It writes a label into the log and asks for one install dump:
+
+```
+installdump() { echo "$(date '+%m-%d %H:%M:%S') [MARK] $1" >> /tmp/OITIDebug.log; touch /tmp/OITIInstallDump.trigger; }
+```
+
+One run takes the snapshot at once and then the samples, so about 12 seconds with the defaults. Wait for `=== END` before the next run and before collecting the log (a log collected mid-run is missing the samples):
+
+```
+grep INSTALL /tmp/OITIDebug.log | tail -n 3
+```
+
+Runs, in this order. Use a big app (1 GB or more) so the download lasts. The `sleep 15;` form gives you time to go back to the Home Screen after pressing Enter; make sure the downloading icon is visible on the page you are on.
+
+| Command | Phone state | Where |
+| --- | --- | --- |
+| `installdump idle-nothing-installing` | Nothing downloading. A baseline to compare against. | Phone |
+| `sleep 15; installdump appstore-downloading-early` | An App Store download is running, a few percent in, icon visible on the Home Screen. | Phone |
+| `sleep 15; installdump appstore-downloading-later` | The same download, 20 percent or more further on. | Phone |
+| `sleep 15; installdump appstore-paused` | Tap the icon on the Home Screen to pause the download first. Resume it afterwards. | Phone |
+| `sleep 15; installdump appstore-installing` | Optional: the last moments, when the icon says Installing. | Phone |
+
+Later, the same way (use the label to say what it is): `appstore-update-downloading` for an app update (start it from the App Store Updates tab) and `testflight-installing` for a TestFlight install.
+
+Collect the result. The first command pulls out the useful lines; the second copies the file to the PC (it contains the names of the apps being installed, so read it before sharing):
+
+```
+grep -e MARK -e INSTALL /tmp/OITIDebug.log > /tmp/OITIInstall.txt
+```
+
+```
+scp -P 2222 root@127.0.0.1:/tmp/OITIInstall.txt ~/Downloads/OITIInstall.txt
+```
+
+For a short paste instead of the file (the verdicts and sample summaries only):
+
+```
+grep -e MARK -e "INSTALL.*VERDICT" -e "INSTALL.*SUMMARY" -e "INSTALL.*PROGRESS " /tmp/OITIDebug.log | tail -n 80
+```
+
+Other greps:
+
+| Command | What it shows | Where |
+| --- | --- | --- |
+| `grep "INSTALL.*CANDIDATE" /tmp/OITIDebug.log` | The apps, placeholders and icons that look like an install. | Phone |
+| `grep "INSTALL.*CLASSPROBE" /tmp/OITIDebug.log` | Which guessed classes exist and their progress-related methods. | Phone |
+| `grep "INSTALL.*ICONVIEW" /tmp/OITIDebug.log` | The Home Screen icon views that report progress. | Phone |
+| `grep "INSTALL.*HINT" /tmp/OITIDebug.log` | Says when no icon views were found (wrong page, or Home Screen not showing). | Phone |
+| `grep "INSTALL.*ERROR" /tmp/OITIDebug.log` | Any exception the dump caught. | Phone |
+
+If a run prints nothing, check `DiagnosticsLevel` first (`install dump request ignored` appears only for the notification, and the trigger file does nothing at level 0), then `grep SESSION /tmp/OITIDebug.log | tail -n 2`. When you are done, set the level back with `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0` and run `sbreload`. A second class query on whatever the dump finds works as before (section 6: put the class names in `/tmp/OITIClassQuery.txt`, then `dumpstate classq-X`).
+
+## 18. App Store downloads and the percentage-only look (build `OITI-exp-2026-10-26-a`; the App Store source was checked on the device with `-25-a` except TestFlight, the Cancelled state and the check animation are new and untested)
+
+Download Progress stage 2. Settings > Insula > **Download Progress** has a new group, **App Store Downloads**, with **Show App Store Downloads**. It needs **Show Download Progress** on too. Both are off by default, Apple Mode switches them off and safe mode never starts the source. App Store downloads report a percentage only (the install dump found no byte counts), so the bar shows the percentage and an estimate of the time left, and no sizes or speed. Section 17 is the read-only dump this was designed from.
+
+| Command | What it does | Where |
+| --- | --- | --- |
+| `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1` then `sbreload` | Level 1 logs the App Store source (tracking, pause, finish). | Phone |
+| `grep DOWNLOAD /tmp/OITIDebug.log \| tail -n 40` | The source and tracker lines (`DIAGNOSTICS.md`, "OITI App Store download source"). | Phone |
+| `defaults write com.wilburt.oiti.prefs DownloadTestFractionOnly -bool true` then `sbreload` | Developer key: **Start Test Download** reports a whole-percent fraction only, to try the percentage-only look without a real download. `-bool false` and `sbreload` go back to bytes. | Phone |
+
+Steps:
+
+1. Percentage-only look with the test download. Turn on `DownloadTestFractionOnly` (above), leave the size limit on Never, tap **Start Test Download**. Minimal: header `App Store - Test Download`, `Downloading` above the bar, the percentage on the right, nothing on the left, and under the bar `~N s left` (it appears after the percentage has moved a few times). Detailed: a line like `42% · ~1 min left`. At the end the Minimal text fades into a green check (Detailed: `Download complete`); stop it with **Stop Test Download** instead and the bar turns red with `Cancelled` for a moment. The **size** limit does nothing in this mode (set it to 100 MB and check); the **time** limit works. Turn the key off and confirm the byte look is unchanged.
+2. A real App Store download. Turn on **Show Download Progress** and **Show App Store Downloads**, set DiagnosticsLevel 1, start a new install of a large app (1 GB or more) and stay on the Home Screen. Within about a second the bar should appear with the header `App Store - <app name>`, `Downloading`, a percentage that rises in whole steps and an estimate after a few steps. The log should show `App Store source on`, then `tracking <bundle ID> (<name>) at N% (installPhase=... installState=... ...)`.
+3. Pause: tap the downloading icon to pause. The bar should say `Paused` with no estimate. The log shows `paused at N% (...)`: please report that line, its `progressPaused` and `placeholderPaused` values tell which one reflects a pause. If neither changes the bar will not say Paused and the number just stops; report that too. Resume: `resumed`, and `Downloading` again.
+4. The end: let it finish. Expect the completion animation in the Minimal look (the text fades, the bar contracts into a green circle and a white check is drawn in it, about 0.8 s; with Reduce Motion on it appears at once) or `Download complete` in Detailed, held for about 3 seconds, then the Island returns to idle, and the log shows `left the placeholder list at N%: complete (app installed: yes)`. Report how long it took from the last percentage change to that line (the earlier dump saw the fraction sit at 76 percent while the install phase changed).
+5. Cancel: start another download and cancel it (press and hold the icon, Cancel Download, or remove the placeholder). After the 3 s grace the bar turns red with `Cancelled` for about 1.6 s and then goes (Detailed: `Download cancelled`), and the log says `cancelled (app installed: no)`. Switching the feature or the source off mid-download still removes the bar at once (the log says `dropped`).
+6. An app update (Updates tab) and a TestFlight install: report whether the bar appears. If it does not, run the install dump (section 17) with the labels `appstore-update-downloading` and `testflight-installing`: an update of an installed app may not be a placeholder at all.
+7. Two downloads at once: the header reads `2 downloads` (checked; any count above one reads `N downloads`) with the mean percentage.
+8. Switch **Show App Store Downloads** (and then **Show Download Progress**, and **Apple Mode**) off during a download: the bar goes and nothing crashes; on again, it returns while the download is still running.
+
+Report: a bar that never appears (and the `DOWNLOAD` lines), a wrong percentage compared with the icon's ring, an estimate that is far off or jumps, anything that stays on screen after the download is gone, and any respring.
+
+## 19. Module split checks (v0.3.0, one per round)
+
+Each round of the `Tweak.xm` split is built and checked on its own before the next one starts. Behavior must not change, so the check is: it builds, nothing looks different, and the module's own features still work. The build tag stays `OITI-exp-2026-10-26-a` during the split, so tell builds apart by the `[MARK]` lines below.
+
+Before building, run the mechanical check from the repo root (it needs only `python3` and `git`, no phone). `--old HEAD` compares with the last commit, so run it before committing the round; after the commit use `--old HEAD~1`. If several rounds are ever left uncommitted, `HEAD` stays at the last commit, so the check covers every round since then and needs one `--allow-wrapper NAME` for each `%init` wrapper added in those rounds (so far `OITIInstallIslandSizeHooks`, `OITIInstallResearchHooks`, `OITIInstallDiagnosticHooks` and `OITIInstallStatusBarHooks`). It must print `RESULT: OK`:
+
+```
+cd ~/OITUI
+python3 tools/check_split.py --old HEAD
+```
+
+Optional extra check (Logos syntax and hook count): `git clone https://github.com/theos/logos ~/logos`, then add `--logos ~/logos/bin/logos.pl`.
+
+Build and install (Arch PC; section 3 has the Mac version). Run `make clean package` first if the build prints errors about missing files: every source file must be listed in `OITI_FILES` in `OITI/Makefile`.
+
+```
+cd ~/OITUI/OITI
+make clean package
+THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222 make package install
+```
+
+### Round 1: Diagnostics (files in `OITI/Diagnostics/`)
+
+Level 0 (normal install). Nothing may look different and no dump machinery may run:
+
+```
+echo "$(date '+%m-%d %H:%M:%S') [MARK] round1-level0" >> /tmp/OITIDebug.log
+sbreload
+```
+
+Wait 15 seconds, then:
+
+```
+sed -n '/round1-level0/,$p' /tmp/OITIDebug.log | grep -E 'SESSION|CHECK|DUMP|STATUSBAR|trigger polling'
+```
+
+Expected: `SESSION` lines ending in `READY hooks installed`, `CHECK` lines, no `trigger polling started` and no `DUMP` lines. Stock look, banners and Settings pages as before.
+
+Level 1 (dumps on):
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
+echo "$(date '+%m-%d %H:%M:%S') [MARK] round1-level1" >> /tmp/OITIDebug.log
+sbreload
+```
+
+Wait 15 seconds, then:
+
+```
+sed -n '/round1-level1/,$p' /tmp/OITIDebug.log | grep -E 'trigger polling started|STATUSBAR (BEGIN|END)|BEGIN #|END #'
+```
+
+Expected: `trigger polling started`, then `STATUSBAR BEGIN reason=boot` and `STATUSBAR END reason=boot`, then an `auto-baseline` dump (`=== BEGIN #1 reason=auto-baseline ===` and its `END`) a few seconds after the Island first lays out.
+
+The dump trigger, the install dump trigger, the Darwin notification and the test element (define `dumpstate` and `installdump` first, sections 6 and 17):
+
+```
+dumpstate round1-dump
+sleep 4
+touch /tmp/OITIPoC.trigger
+sleep 4
+installdump round1-install
+sleep 20
+notifyutil -p com.wilburt.oiti/Dump
+sleep 4
+sed -n '/round1-dump/,$p' /tmp/OITIDebug.log | grep -E 'reason=|=== (BEGIN|END)'
+```
+
+Expected: a `trigger-file` dump (`BEGIN #2` to `END #2`), a hello element on the Island for a few seconds, an `INSTALL` run `=== BEGIN #1 reason=trigger-file ... ===` through its `END`, and a `darwin-notification` dump. Then compare one dump with an older one: `grep -c METRICS /tmp/OITIDebug.log` should be well above zero and the `METRICS multiplier` line should show your Island size settings.
+
+Back to normal:
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0
+sbreload
+```
+
+Report: a build error (the first lines of it), a missing expected line above, a dump that never starts, or anything on screen that looks different from before the split.
+
+### Round 2: DownloadProgress (files in `OITI/DownloadProgress/`)
+
+Run the check and the build from the top of this section. The full download checks are sections 16 and 18; this is the short version. Settings > Insula > **Download Progress** has the switches. Nothing may look or behave differently from before the split.
+
+1. Switch **Show Download Progress** off (the default). Open the Download Progress page and the Style picker: no crash, and the Island looks stock.
+2. Switch it on, Style **Minimal**, test size 800 MB, tap **Start Test Download**. The black pill appears under the Island, the bar runs with speed, size and percentage, and at the end it turns into the green check and goes away.
+3. Start another test and swipe the pill up: it goes and stays away. **Start Test Download** while it runs brings it back. **Stop Test Download** removes it at once.
+4. Style **Detailed**, start a test: an Island element with the app icon, the headline and the bar with its text line; at the end it turns green with `Download complete`, then the Island returns to idle.
+5. Switch **Show Download Progress** off during a test (the bar goes), on again (it returns); the same with **Apple Mode**.
+6. Switch **App Store Downloads** on. Start a real App Store download (a small free app): the percentage follows the App Store's. Pause it, resume it, cancel a second one, let a third finish. Each ends the way section 18 describes.
+7. With Island Notifications on and Style **Detailed**, send a notification during a test download: the stack behaves as before the split.
+
+```
+grep DOWNLOAD /tmp/OITIDebug.log | tail -30
+```
+
+Expected: `DOWNLOAD started`, `progress element up` (Detailed) and `finished` or `cancelled` lines for each run above, and no `the system ended it` line.
+
+Report: a build error (the first lines), a step above that behaves differently from before the split, or a crash or respring.
+
+### Round 3: IslandSize (file in `OITI/IslandSize/`)
+
+Run the check (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallIslandSizeHooks`) and the build from the top of this section. This module is the Island's position, size, scale and appearance, so a visual pass is the check: for each step, compare with how it looked before the split. Settings > Insula, main page unless a page is named.
+
+1. Every setting at its default (or **Apple Mode** on): the Island looks stock, and a banner drops from the stock position.
+2. **Scale** page, **Island Size**: drag **Island Width** and **Island Height**; the Island resizes live without a respring and returns to stock at 1.0 (**Reset Island Size to 1.0**).
+3. **Scale** page, **Custom Island Scale**: switch on **Use Custom Scale** and drag **Width (X)** and **Height (Y)**; the whole Island scales around Apple's own size and returns at 1.0 (**Reset Width and Height to 1.0**).
+4. **Fix Island Position** on and off. Then **Custom Island Positioning**: **Use Custom Position** with **X Position:** and **Y Position:**, and **Save**.
+5. **Notifications** page: **Fix Notification Positioning**, then **Custom Notification Positioning** (**Use Custom Notification Position**, X and Y, **Save**). Send yourself a notification; the banner appears where the setting says.
+6. **Color and Opacity** page: **Use Custom Color** with Red, Green and Blue, and **Use Custom Opacity**. Both apply live and switch off cleanly. Main page, **Misc**: **Hide When Not in Use** and **Disable Island Outline**, each on and off.
+7. **Apple Mode** on: every customization above is off; the built-in position and notification fixes stay.
+
+```
+echo "$(date '+%m-%d %H:%M:%S') [MARK] round3" >> /tmp/OITIDebug.log
+sbreload
+sleep 15
+sed -n '/round3/,$p' /tmp/OITIDebug.log | grep -E 'SESSION|CHECK|ERROR|WARN'
+```
+
+Expected: `SESSION` lines ending in `READY hooks installed`, and no new `ERROR` or `WARN` lines.
+
+Report: a build error (the first lines), a step above that behaves differently from before the split, or a crash or respring.
+
+### Round 4: IslandNotifications (files in `OITI/IslandNotifications/`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallResearchHooks --allow-wrapper OITIInstallDiagnosticHooks`). This is the biggest module, so the check is longer. Settings > Insula > **Notifications**; section 13 has the details.
+
+1. Switch **Show Notifications in the Island** on, Style Expanded. Run the regression checklist of section 13, steps 1 to 6: two notifications close together, four and then a fifth, swipe the newest and an older one, tap one (it opens the matching app and stays swipeable), Compact style, **Stack Multiple Notifications** off and on, Island Notifications off (the stack clears, new notifications use the stock banner).
+2. **Hide the Stock Banner** on: the stock banner fades while the Island element shows; off: it comes back. Check **Notification Haptic**, the duration, the message lines and the roundness slider once each.
+3. Section 15 (crash recovery): steps 1 to 3 and the negative check in step 7 (OITI's own Respring does not start the 120 second window).
+4. Detailed download with a notification: start a test download in the Detailed look, send a notification; the stack behaves as before the split.
+5. Level 1 (`DiagnosticsLevel` 1, `sbreload`): `touch /tmp/OITIPoC.trigger` shows the test element, and one real notification logs `AUTH` lines (the diagnostic hook group).
+
+```
+grep -E 'STACK|AUTH|TAP|SWIPE|GUARD caught|RECOVERY|banner request|registered' /tmp/OITIDebug.log | tail -40
+```
+
+Expected: the same kinds of lines as before the split (`banner request` and `registered` per notification, `TAP` after a tap, `SWIPE` after a swipe, `AUTH` at level 1) and no `GUARD caught`.
+
+Report: a build error (the first lines), a step above that behaves differently from before the split, or a crash or respring.
+
+### Round 5: Startup (file in `OITI/Startup/`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD`; no `--allow-wrapper` is needed, this round adds no `%init` wrapper). Settings > Insula > **Startup Animation**.
+
+1. Switch **Enable Hello Animation (Prototype)** on, then `sbreload`. Unlock and stay on the Home Screen: the Hello clip plays once in the Island, muted, and the Island element disappears when it ends.
+2. Cooldown: `sbreload` again within five minutes, the animation does not play; after five minutes it does.
+3. Gate: `sbreload`, stay on the Lock Screen; nothing plays until you unlock onto the Home Screen. Open an app right after unlocking: the animation does not appear over it.
+4. Interruption: start a charging activity or a call, or send a notification while it plays; the card yields to it (`yielding startup card` in the log).
+5. Toggle off: the setting stops it at the next respring; switching it off while it plays removes the element.
+
+```
+grep -E 'HELLO' /tmp/OITIDebug.log | tail -30
+```
+
+Needs `DiagnosticsLevel` 1 (`HELLO` lines are level 1). Expected: `waiting`/`created muted, single-play video view`/`startup prototype presented`, or the `suppressed by five-minute cooldown` and `yielding startup card` lines in steps 2 and 4.
+
+Report: a build error (the first lines), a step above that behaves differently from before the split, or a crash or respring.
+
+### Round 6: StatusBar (file in `OITI/StatusBar/`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallStatusBarHooks`). Settings > Insula > **Status Bar Layout**; section 12 has the details. The 8 Plus runs the provider code inert, so the check is that nothing changed:
+
+1. After the install and `sbreload`, the status bar looks stock: no red `rdar:45025538` bar, clock, signal and battery in place, with the Island on and off.
+2. Settings > Insula > Status Bar Layout: switch between Automatic and Off, respring each time; the status bar stays normal.
+3. Respring-loop guard (section 7): safe mode still turns the status bar hooks off (no `CHOICE` lines in safe mode).
+
+```
+grep -E 'CHOICE|STATUSBAR|SESSION' /tmp/OITIDebug.log | tail -20
+```
+
+Expected: one `CHOICE` line per distinct combination (level 0), `READY hooks installed`, and at `DiagnosticsLevel` 1 the `LIVE` lines from the status bars.
+
+Report: a build error (the first lines), a status bar that looks different, or a crash or respring.
+
+### Round 7: Shared and core (files in `OITI/Shared/` and `OITI/Safety/`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallStatusBarHooks`; this round adds no `%init` wrapper). The round moves the shared state, the preferences reload, the respring-loop guard and the startup self-check, so it touches everything and the check covers the whole tweak.
+
+1. Stock settings (every Island setting at its default) still look stock; banners and the settings pages open and save.
+2. Live settings: change the Island color, transparency and relative scale in Settings > Insula; the Island follows without a respring. Change a Download setting and a Notifications setting once each (section 14).
+3. Respring-loop guard and safe mode (section 7): the loop test still ends in safe mode with the banner on the Settings page; **Clear Safe Mode & Respring** brings the hooks back.
+4. Self-check: with the Island on, `grep CHECK /tmp/OITIDebug.log` shows `OK spoof state matches islandEnabled`.
+5. Apple Mode on and off; the Hello animation, a notification in the Island and a test download each work once.
+
+```
+grep -E 'SESSION|GUARD|SAFE|CHECK|PREF' /tmp/OITIDebug.log | tail -30
+```
+
+Expected: `READY hooks installed`, `OK spoof state matches islandEnabled`, a `CHANGED` line at `DiagnosticsLevel` 1 when you change a setting, and in the loop test the `GUARD` lines that lead to safe mode.
+
+Report: a build error (the first lines), a setting that no longer applies live, safe mode not engaging or not clearing, or a crash or respring.
+
+### Round 8: shared runtime helpers (file `OITI/Shared/OITIRuntimeHelpers.xm`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallStatusBarHooks`). The round moves eight getter helpers that three modules and the install dump call, so the check is that each caller still works:
+
+1. Hello animation: switch **Enable Hello Animation (Prototype)** on, `sbreload`, unlock; it plays once (it uses `OITISafeObject` and `OITISafeBool` for the lock and Home Screen checks).
+2. Island notifications: a notification shows in the Island with title, message and app name (uses `OITISafeString`); tapping it still opens the app (uses `OITIKVCObject`).
+3. Download progress: **Show Download Progress** with the App Store source on, start a real App Store download; the Island follows it (uses the install helpers).
+4. Install dump (needs `DiagnosticsLevel` 1): `touch /tmp/OITIInstallDump.trigger`, then `grep -c INSTALL /tmp/OITIDebug.log` is above 0.
+
+Report: a build error (the first lines), a step that behaves differently from before the split, or a crash or respring.

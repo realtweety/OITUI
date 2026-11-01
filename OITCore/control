@@ -2,7 +2,7 @@ Package: com.wilburt.oitcore
 Name: OITCore
 Version: 0.1.0
 Architecture: iphoneos-arm64
-Description: Shared foundation framework for the OITUI ecosystem.
+Description: Shared foundation framework for Tellus (OITUI), the dependency of Insula (OITI).
 Maintainer: Wilburt
 Author: Wilburt
 Section: Development

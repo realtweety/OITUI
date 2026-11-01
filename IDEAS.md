@@ -10,26 +10,30 @@
 - **Remaining notification work:** Verify Compact/Wide and real notification paths broadly, confirm timeout behavior over longer intervals, test on real Dynamic Island hardware and other iOS 16 builds. Keep the current card layout unless owner asks to revisit it. Progress bars are a possible later addition.
 - **Hello Startup Animation (0.2.0).** The off-by-default toggle waits until the device is unlocked and SpringBoard is active on the Home Screen, checks a persistent five-minute cooldown, and shows an expanded Island element. The owner confirmed the Home Screen gate, video sizing, cooldown, uninstall, toggle and interruption behavior on-device. The AVPlayer-backed view plays the supplied SVG-derived clip once without audio and removes the Island element when playback ends or fails. While it plays, charging activity is kept registered but placed behind the startup animation; calls and other Island activity take priority. The bundled H.264 clip is 1280×720, six seconds, white on black.
 - **Volume slider:** deferred after an initial implementation was removed because it did not work and did not seem broadly useful.
-- **Polish list** (owner chose to defer): live color, opacity and banner offset (add a relayout request like the size sliders); banner position at extreme Island sizes; make the X/Y scale relative to Apple's own size (screen width / canvas width, new keys, no migration); maybe lower the Island Height slider minimum (around 0.6 is where 22 pt artwork stops fitting, untested).
+- **Polish list** (owner chose to defer): live color, opacity and banner offset (done on `experiments`, build `OITI-exp-2026-10-21-a`, tested on-device); banner position at extreme Island sizes; make the X/Y scale relative to Apple's own size (done on `experiments`, build `OITI-exp-2026-10-21-b`: new keys `RelativeScaleX` / `RelativeScaleY`, no migration, tested on-device); maybe lower the Island Height slider minimum (around 0.6 is where 22 pt artwork stops fitting, untested).
 - **Per-app exclude list for Island Notifications.** Deferred until someone asks for it (keep Phone or Timer on the stock banner, for example).
 - **OITS** is parked: revert or adapt to the `_UIStatusBarProvider_DynamicSplit` layout class, rebuild the lost diagnostic fixes, restore the scoping guard.
 
 ## Things I Think Would Be Nice
 
 - **Modular architecture**: split `Tweak.xm` into modules (`Modules/Music`, `Modules/Phone`, etc.)
-  instead of one growing file. **Status:** no modules exist yet. Step 1 added a shared device table
-  (`OITIDeviceProfiles.h`); real modules make sense once the content-injection research is done.
+  instead of one growing file. **Status:** the split is under way (v0.3.0, plan in `OVERVIEW.md`, "The Great Split"): `OITI/Diagnostics/`, `OITI/DownloadProgress/`, `OITI/IslandSize/`, `OITI/IslandNotifications/`, `OITI/Startup/`, `OITI/StatusBar/`, `OITI/Safety/` and `OITI/Shared/` exist after round 7; the other modules follow one per round. Step 1 added a shared device table
+  (`OITIDeviceProfiles.h`).
 - **Device awareness**: done as a table in `OITIDeviceProfiles.h` (17 models, each marked verified or estimated).
   Remaining: entries for iPhone 8 / 8 Plus (needs on-device measurement) and more devices.
-- **Apple Mode vs Enhanced Mode**: simple toggle, conservative default, low risk.
+- **Apple Mode vs Enhanced Mode**: done on `experiments` (build `OITI-exp-2026-10-21-b`, tested on-device) as a single `appleMode` switch that forces every Island customization off and keeps Enable Dynamic Island, the built-in position and notification fixes, the Status Bar Layout setting and safe mode.
 - **Developer/debug overlay**: FPS, render time, active Island state, and other useful runtime diagnostics. Keep it focused on information that can actually be measured on-device.
-- **Crash recovery for an expanded Island state**: small, concrete, testable.
+- **Crash recovery for an expanded Island state**: done on `experiments` (build `OITI-exp-2026-10-21-c`, tested on-device) as a live-element breadcrumb file plus a 120 s window at the next launch in which Island notifications and the startup animation stay off. Nothing about the expanded Island is persisted across a SpringBoard restart, so the real risk was a re-delivered notification rebuilding the element that crashed.
 - **Island Stacks / queue**: multiple things (music, timer, download) don't fight for the
   same space -- swipeable or queued instead of clobbering each other. Needs a content mechanism first (Step 3 research).
 - **Context awareness**: Island content adapts to foreground app (Maps -> nav controls,
   Spotify -> media controls). Needs a content mechanism first.
 - **Universal progress bars**: any app/tweak can expose a progress value the Island renders
-  generically. Precursor to a real plugin API. Needs a content mechanism first.
+  generically. Precursor to a real plugin API. First use: **download progress** (stage 1 appearance finished and working on the owner's phone; stage 2, the App Store source with a
+  percentage-only tracker input, is implemented on `experiments`, build `OITI-exp-2026-10-25-a`, tested on the owner's phone; browsers are stage 3, a separate project; later ideas: a return-to-idle limit by percentage; the Face ID-style completion check is done for the Minimal look in build `OITI-exp-2026-10-26-a`, tested on the owner's phone, and the Detailed look still shows plain text). Owner's decisions: downloads first; App Store and Safari
+  as the first real targets, Chrome and Arc later (they need hooks inside each app); return to idle by MB downloaded and/or
+  seconds on screen, user-chosen; off by default; a fake download for testing. Timers and other sources can use the same
+  tracker later.
 - **OITUI App**: Make a whole new app specifically for customizing OITUI tweaks like OITI and OITS. I would probably add in some sort of live preview to show the user what their settings would look like before they apply everything. It would essentially just move OITUI tweak customization from Settings to a dedicated app
 - **Volume Slider**: It might be a cool idea to try and move the volume slider into the dynamic island somehow, maybe do the same thing with other sliders and indicators and whatnot.
   **Note:** the tweak Crescendo (github.com/Yves000/Crescendo, GPL-3.0) already does this for the expanded media player by
@@ -99,6 +103,8 @@ on-device measurement, not before.
 - Next research step (done in October 2026): the element route was chosen and works. Notes: `LEARNINGS.md`, "Island elements".
 
 ## Infrastructure ideas (from the OITI review and Crescendo)
+
+- **Split `Tweak.xm` into module folders** (owner's idea; agreed on 2026-10-28 as the next step before 0.3.0, plan and order in `OVERVIEW.md`, "The Great Split"): for example `OITI/Download Progress/`, `OITI/Resizing/`, `OITI/Notifications/`, `OITI/Startup/`, with a small shared core for logging, preferences and the element machinery. Folder names with spaces are fine for Theos but a nuisance in shell commands, so `DownloadProgress/` is probably better. The work is mostly moving code without changing behavior, which makes it risky in one big step: do it one module at a time with a build and a short device check after each, starting with the most self-contained one (the download tracker and its views, which only touch the element presenter through two calls). The file list lives in `OITI/Makefile` (`OITI_FILES`), and Logos `%hook` groups can sit in `.xm` files in any folder (initialised from a small function in the same file). **Status (2026-10-30):** rounds 1 to 4 (Diagnostics, DownloadProgress, IslandSize, IslandNotifications) are done and checked on the phone, round 4 (IslandNotifications) is done too, and round 5 (Startup, the Hello animation) is written (build and device check pending); rounds 5 and 6 (Startup, StatusBar) are done, round 7 (Shared and core, the guard and the preferences reload) is done too, and round 8 (shared runtime helpers) is written (build and device check pending); then the split is released as 0.2.5, then the split is released as 0.2.5.
 
 - **Respring-loop safe mode**: auto-disable OITI features after repeated respring cycles in a short window.
 - **Startup self-check** for the MobileGestalt spoof: log when `islandEnabled` is on but the cache no longer holds the spoofed value.

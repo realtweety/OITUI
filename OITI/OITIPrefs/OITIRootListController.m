@@ -258,7 +258,7 @@ static BOOL OITIMachineHasNativeIsland(NSString *machine) {
         footerLabel.textAlignment = NSTextAlignmentCenter;
         footerLabel.textColor = [UIColor grayColor];
         footerLabel.font = [UIFont systemFontOfSize:14.0];
-        footerLabel.text = @"OITI v0.1.0";
+        footerLabel.text = @"Insula";
         return footerLabel;
     } else {
         return nil;
@@ -292,7 +292,7 @@ static BOOL OITIMachineHasNativeIsland(NSString *machine) {
             const OITIDeviceProfile *profile = OITIProfileForModel([OITDeviceInfo machineIdentifier]);
             if (!profile) {
                 [OITIRootListController showFixNoticeWithTitle:@"No built-in offsets"
-                                                       message:@"OITI has no built-in offsets for this device, so this option will have no effect. Turn it off and use the custom position and banner offsets instead."];
+                                                       message:@"Insula has no built-in offsets for this device, so this option will have no effect. Turn it off and use the custom position and banner offsets instead."];
             } else if (!profile->verified) {
                 [OITIRootListController showFixNoticeWithTitle:@"Estimated offsets"
                                                        message:@"The built-in offsets for this device are estimates and may not be pixel-perfect. If something looks off, turn this option off and use custom offsets."];

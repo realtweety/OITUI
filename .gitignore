@@ -24,3 +24,6 @@ packages/
 
 # Syncthing
 .stfolder/
+
+# Claude
+.claude

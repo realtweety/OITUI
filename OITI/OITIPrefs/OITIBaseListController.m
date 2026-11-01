@@ -8,9 +8,84 @@
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 
+#ifndef OITI_BUILD_VERSION
+#define OITI_BUILD_VERSION ""
+#endif
+
+// The version of OITI that is installed, for the line at the bottom of the main page. The package database is read
+// first: it holds the same version string as the installed .deb ("0.2.0", or "0.2.0-1+debug" for a debug build). The
+// Settings process may not be allowed to read it, so the version baked into this bundle at build time (from the
+// control file) is the fallback and is marked as built-in. Read once and kept.
+// Keys for the two things a choice row keeps on its button. They must differ: with one shared key the second store
+// replaced the first, and picking a value then sent setText: to the specifier instead of the label (a crash in
+// Settings, present since the choice rows were added).
+static const void *kOITIChoiceLabelKey = &kOITIChoiceLabelKey;
+static const void *kOITIChoiceSpecifierKey = &kOITIChoiceSpecifierKey;
+
+static NSString *OITIInstalledVersionText(void) {
+    static NSString *text;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *found = nil;
+        for (NSString *path in @[@"/var/jb/var/lib/dpkg/status", @"/var/lib/dpkg/status"]) {
+            NSString *status = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+            if (!status.length) continue;
+            for (NSString *paragraph in [status componentsSeparatedByString:@"\n\n"]) {
+                NSString *block = [paragraph stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if (![block hasPrefix:@"Package: com.wilburt.oiti\n"]) continue;
+                for (NSString *line in [block componentsSeparatedByString:@"\n"]) {
+                    if ([line hasPrefix:@"Version: "]) {
+                        found = [[line substringFromIndex:9] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        break;
+                    }
+                }
+                break;
+            }
+            if (found.length) break;
+        }
+        NSString *builtIn = @OITI_BUILD_VERSION;
+        if (found.length) {
+            text = [NSString stringWithFormat:@"Insula (OITI) version %@", found];
+        } else if (builtIn.length) {
+            text = [NSString stringWithFormat:@"Insula (OITI) version %@ (built-in)", builtIn];
+        } else {
+            text = @"Insula (OITI) version unknown";
+        }
+    });
+    return text;
+}
+
+// Safe-mode files written by the tweak's respring-loop guard (OITI/Tweak.xm). Keep the paths in sync.
+static NSString * const kOITISafeModePath = @"/var/mobile/Library/Preferences/OITISafeMode.plist";
+static NSString * const kOITIBootLogPath = @"/var/mobile/Library/Preferences/OITIBootLog.plist";
+// Left just before a respring this page asks for, so the guard does not count that launch as a possible crash.
+static NSString * const kOITIRespringIntentPath = @"/var/mobile/Library/Preferences/OITIRespringIntent.plist";
+
+// The safe-mode flag when OITI's hooks are switched off, nil otherwise.
+static NSDictionary *OITISafeModeFlag(void) {
+    NSDictionary *flag = [NSDictionary dictionaryWithContentsOfFile:kOITISafeModePath];
+    return [flag[@"tripped"] boolValue] ? flag : nil;
+}
+
+// Apple Mode (key appleMode): the tweak forces every Island customization off while it is on. Read here only to show
+// the banner. CFPreferences is read directly so a value just written by a switch on this page is seen.
+static BOOL OITIAppleModeOn(void) {
+    CFStringRef domain = (__bridge CFStringRef)kOITIPrefsDomain;
+    CFPreferencesAppSynchronize(domain);
+    Boolean valid = false;
+    Boolean on = CFPreferencesGetAppBooleanValue(CFSTR("appleMode"), domain, &valid);
+    return valid && on;
+}
+
+static void OITIMarkRespringIntent(void) {
+    [@{ @"time": @([[NSDate date] timeIntervalSince1970]) } writeToFile:kOITIRespringIntentPath atomically:YES];
+}
+
 @interface OITIBaseListController () <UITextFieldDelegate>
 @property (nonatomic, strong) UIScrollView *oiti_scrollView;
 @property (nonatomic, strong) UIStackView *oiti_contentStack;
+@property (nonatomic, assign) BOOL oiti_shownSafeMode;
+@property (nonatomic, assign) BOOL oiti_shownAppleMode;
 @end
 
 @implementation OITIBaseListController
@@ -109,8 +184,154 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     return objc_getAssociatedObject(card, @selector(oitiCard));
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    // Safe mode can switch on or off while the settings are open (for example after a respring from here).
+    if (self.oiti_contentStack &&
+        ((OITISafeModeFlag() != nil) != self.oiti_shownSafeMode || OITIAppleModeOn() != self.oiti_shownAppleMode)) {
+        [self oitiRefreshSettingsPage];
+    }
+}
+
+// Banner shown at the top of every OITI settings page while Apple Mode is on, so it is clear why the customization
+// settings below do nothing. The main page has the switch itself, so only the other pages get the button.
+- (UIView *)oitiAppleModeBanner {
+    if (!OITIAppleModeOn()) return nil;
+    BOOL isRoot = [[self oiti_plistName] isEqualToString:@"Root"];
+
+    UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
+    card.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.16];
+    card.layer.cornerRadius = 22.0;
+    card.layer.cornerCurve = kCACornerCurveContinuous;
+    card.layer.masksToBounds = YES;
+
+    UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 8.0;
+    stack.layoutMargins = UIEdgeInsetsMake(15, 15, isRoot ? 15 : 8, 15);
+    stack.layoutMarginsRelativeArrangement = YES;
+    [card addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+    ]];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
+    title.text = @"Apple Mode is on";
+    title.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+    title.numberOfLines = 0;
+    [stack addArrangedSubview:title];
+
+    UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
+    detail.text = isRoot
+        ? @"The Island is the stock iOS one. Your customization settings are saved but not applied."
+        : @"The Island is the stock iOS one. The settings on this page are saved but not applied.";
+    detail.font = [UIFont systemFontOfSize:13.0];
+    detail.textColor = UIColor.secondaryLabelColor;
+    detail.numberOfLines = 0;
+    [stack addArrangedSubview:detail];
+
+    if (!isRoot) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+        [button setTitle:@"Turn Off Apple Mode" forState:UIControlStateNormal];
+        [button.heightAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
+        [button addTarget:self action:@selector(oitiTurnOffAppleMode:) forControlEvents:UIControlEventTouchUpInside];
+        [stack addArrangedSubview:button];
+    }
+    return card;
+}
+
+- (void)oitiTurnOffAppleMode:(id)sender {
+    CFStringRef domain = (__bridge CFStringRef)kOITIPrefsDomain;
+    CFPreferencesSetAppValue(CFSTR("appleMode"), kCFBooleanFalse, domain);
+    CFPreferencesAppSynchronize(domain);
+    OITPostDarwinNotification(kOITIPrefsChanged);
+    [self oitiRefreshSettingsPage];
+}
+
+// Banner shown at the top of every OITI settings page while the respring-loop guard has OITI's hooks switched off.
+- (UIView *)oitiSafeModeBanner {
+    NSDictionary *flag = OITISafeModeFlag();
+    if (!flag) return nil;
+
+    NSString *reason = [flag[@"reason"] isKindOfClass:[NSString class]] ? flag[@"reason"] : @"repeated SpringBoard restarts";
+    NSString *when = @"";
+    if ([flag[@"time"] isKindOfClass:[NSNumber class]]) {
+        NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+        formatter.dateStyle = NSDateFormatterMediumStyle;
+        formatter.timeStyle = NSDateFormatterShortStyle;
+        when = [NSString stringWithFormat:@" (%@)", [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:[flag[@"time"] doubleValue]]]];
+    }
+
+    UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
+    card.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.20];
+    card.layer.cornerRadius = 22.0;
+    card.layer.cornerCurve = kCACornerCurveContinuous;
+    card.layer.masksToBounds = YES;
+
+    UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 8.0;
+    stack.layoutMargins = UIEdgeInsetsMake(15, 15, 8, 15);
+    stack.layoutMarginsRelativeArrangement = YES;
+    [card addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+    ]];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
+    title.text = @"Insula safe mode is on";
+    title.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+    title.numberOfLines = 0;
+    [stack addArrangedSubview:title];
+
+    UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
+    detail.text = [NSString stringWithFormat:@"Insula switched its tweaks off after %@%@. Your changes below are saved but do nothing until safe mode is cleared and you respring. If SpringBoard keeps restarting after that, safe mode will switch on again.", reason, when];
+    detail.font = [UIFont systemFontOfSize:13.0];
+    detail.textColor = UIColor.secondaryLabelColor;
+    detail.numberOfLines = 0;
+    [stack addArrangedSubview:detail];
+
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    [button setTitle:@"Clear Safe Mode & Respring" forState:UIControlStateNormal];
+    [button.heightAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
+    [button addTarget:self action:@selector(oitiClearSafeModeAsk:) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:button];
+    return card;
+}
+
+- (void)oitiClearSafeModeAsk:(id)sender {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Clear safe mode"
+                                                                   message:@"Insula's tweaks switch back on after the respring."
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Clear & Respring" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        [fileManager removeItemAtPath:kOITISafeModePath error:nil];
+        [fileManager removeItemAtPath:kOITIBootLogPath error:nil];
+        OITIMarkRespringIntent();
+        OITRequestRespring();
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)oiti_buildSettingsPage {
     [self.oiti_contentStack addArrangedSubview:[self oitiSectionHeader:self.title subtitle:nil]];
+    UIView *safeModeBanner = [self oitiSafeModeBanner];
+    self.oiti_shownSafeMode = safeModeBanner != nil;
+    if (safeModeBanner) [self.oiti_contentStack addArrangedSubview:safeModeBanner];
+    UIView *appleModeBanner = [self oitiAppleModeBanner];
+    self.oiti_shownAppleMode = appleModeBanner != nil;
+    if (appleModeBanner) [self.oiti_contentStack addArrangedSubview:appleModeBanner];
     UIView *card = nil;
     UIStackView *rows = nil;
     NSString *pendingFooter = nil;
@@ -162,11 +383,18 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     }
     if ([[self oiti_plistName] isEqualToString:@"Root"]) {
         UILabel *credit = [[UILabel alloc] initWithFrame:CGRectZero];
-        credit.text = @"OITI · Settings design adapted from Liquid (Gl)Ass";
+        credit.text = @"Insula · Settings design adapted from Liquid (Gl)Ass";
         credit.textColor = UIColor.tertiaryLabelColor;
         credit.textAlignment = NSTextAlignmentCenter;
         credit.font = [UIFont systemFontOfSize:11.0];
         [self.oiti_contentStack addArrangedSubview:credit];
+
+        UILabel *version = [[UILabel alloc] initWithFrame:CGRectZero];
+        version.text = OITIInstalledVersionText();
+        version.textColor = UIColor.tertiaryLabelColor;
+        version.textAlignment = NSTextAlignmentCenter;
+        version.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightMedium];
+        [self.oiti_contentStack addArrangedSubview:version];
     }
 }
 
@@ -248,6 +476,20 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 - (void)oitiSwitchChanged:(UISwitch *)sender {
     PSSpecifier *specifier = objc_getAssociatedObject(sender, @selector(oitiSwitchChanged:));
     [self setPreferenceValue:@(sender.on) specifier:specifier];
+    // Apple Mode shows a banner on every page, so rebuild this one to add or remove it.
+    if ([[specifier propertyForKey:@"key"] isEqualToString:@"appleMode"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self oitiRefreshSettingsPage]; });
+    }
+}
+
+// Text for a slider's value. plist keys: valueFormat (a format taking one double, default "%.2f") and zeroText (shown
+// instead when the value is below 0.5, for sliders where 0 means "never").
+static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
+    NSString *zeroText = [specifier propertyForKey:@"zeroText"];
+    if ([zeroText isKindOfClass:[NSString class]] && zeroText.length && value < 0.5) return zeroText;
+    NSString *format = [specifier propertyForKey:@"valueFormat"];
+    if (![format isKindOfClass:[NSString class]] || !format.length) format = @"%.2f";
+    return [NSString stringWithFormat:format, value];
 }
 
 - (UIView *)oitiSliderRow:(PSSpecifier *)specifier {
@@ -263,7 +505,7 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     UILabel *number = [[UILabel alloc] initWithFrame:CGRectZero];
     number.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightRegular];
     number.textColor = UIColor.secondaryLabelColor; number.textAlignment = NSTextAlignmentRight;
-    number.text = [NSString stringWithFormat:@"%.2f", value.doubleValue];
+    number.text = OITISliderValueText(specifier, value.doubleValue);
     [top addArrangedSubview:name]; [top addArrangedSubview:number];
     UISlider *slider = [[UISlider alloc] initWithFrame:CGRectZero];
     slider.minimumValue = min.floatValue; slider.maximumValue = max.floatValue; slider.value = value.floatValue;
@@ -277,8 +519,8 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 
 - (void)oitiSliderChanged:(UISlider *)slider {
     UILabel *value = objc_getAssociatedObject(slider, @selector(oitiSliderValueLabel:));
-    value.text = [NSString stringWithFormat:@"%.2f", slider.value];
     PSSpecifier *specifier = objc_getAssociatedObject(slider, @selector(oitiSliderChanged:));
+    value.text = OITISliderValueText(specifier, slider.value);
     NSMutableDictionary *state = objc_getAssociatedObject(slider, @selector(oitiSliderState:));
     if (!state) {
         state = [NSMutableDictionary dictionary];
@@ -405,7 +647,7 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     UIStackView *row = [[UIStackView alloc] initWithFrame:CGRectZero]; row.axis = UILayoutConstraintAxisHorizontal; row.spacing = 8;
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero]; title.text = [specifier propertyForKey:@"label"]; title.textColor = UIColor.labelColor; title.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
     UILabel *current = [[UILabel alloc] initWithFrame:CGRectZero]; current.textColor = UIColor.secondaryLabelColor; current.textAlignment = NSTextAlignmentRight; current.font = [UIFont systemFontOfSize:13];
-    objc_setAssociatedObject(button, @selector(oitiChooseValue:), current, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(button, kOITIChoiceLabelKey, current, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     NSArray *values = [specifier propertyForKey:@"validValues"] ?: @[]; NSArray *titles = [specifier propertyForKey:@"validTitles"] ?: values;
     id selected = [self readPreferenceValue:specifier] ?: [specifier propertyForKey:@"default"];
     NSUInteger index = [values indexOfObject:selected]; current.text = index < titles.count ? titles[index] : @"Choose";
@@ -415,19 +657,19 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
     row.translatesAutoresizingMaskIntoConstraints = NO; [button addSubview:row];
     [NSLayoutConstraint activateConstraints:@[[row.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:15],[row.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-15],[row.topAnchor constraintEqualToAnchor:button.topAnchor constant:15],[row.bottomAnchor constraintEqualToAnchor:button.bottomAnchor constant:-15]]];
     [button addTarget:self action:@selector(oitiChooseValue:) forControlEvents:UIControlEventTouchUpInside];
-    objc_setAssociatedObject(button, @selector(oitiChooseValue:), specifier, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(button, kOITIChoiceSpecifierKey, specifier, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return button;
 }
 
 - (void)oitiChooseValue:(UIButton *)sender {
-    PSSpecifier *specifier = objc_getAssociatedObject(sender, @selector(oitiChooseValue:));
+    PSSpecifier *specifier = objc_getAssociatedObject(sender, kOITIChoiceSpecifierKey);
     NSArray *values = [specifier propertyForKey:@"validValues"] ?: @[]; NSArray *titles = [specifier propertyForKey:@"validTitles"] ?: values;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[specifier propertyForKey:@"label"] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     for (NSUInteger i = 0; i < values.count; i++) {
         id value = values[i];
         [sheet addAction:[UIAlertAction actionWithTitle:(i < titles.count ? titles[i] : [value description]) style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
             [self setPreferenceValue:value specifier:specifier];
-            UILabel *current = objc_getAssociatedObject(sender, @selector(oitiChooseValue:));
+            UILabel *current = objc_getAssociatedObject(sender, kOITIChoiceLabelKey);
             current.text = i < titles.count ? titles[i] : [value description];
         }]];
     }
@@ -439,7 +681,7 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 - (void)respringAsk:(id)sender {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Respring" message:@"You are about to respring." preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Respring" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) { OITRequestRespring(); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Respring" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) { OITIMarkRespringIntent(); OITRequestRespring(); }]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
