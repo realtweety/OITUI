@@ -2,9 +2,10 @@
 //
 // The module is OITINoticePresenter.xm, OITINoticeSupport.xm, OITINoticeElement.xm, OITINoticeViews.xm, OITIBannerHide.xm,
 // OITINoticeActions.xm and OITINotificationHooks.xm. Everything below is declared here because more than one of them (or
-// Tweak.xm) uses it; every other helper is static in its own file. The declarations are copies of the definitions.
+// another module) uses it; every other helper is static in its own file. The declarations are copies of the definitions.
 
 #import "Shared/OITIShared.h"
+#import "Startup/OITIStartup.h"   // the presenter and the hooks call the Hello startup code (round 5)
 
 // Apple's element code calls -elementIdentifier on the "identifier" argument (a plain NSString crashed with
 // "-[__NSCFString elementIdentifier]: unrecognized selector"), so the identifier must be an object. This stub answers
@@ -48,9 +49,6 @@ extern BOOL sBannerHideActive;
 extern NSMutableSet<NSString *> *sTraceSeen;
 
 // OITINoticeSupport.xm
-id OITISafeObject(id object, NSString *selectorName);
-NSString *OITISafeString(id object, NSString *selectorName);
-id OITIKVCObject(id object, NSString *key);
 NSString *OITIElementPartsSummary(id element);
 NSString *OITIElementIdentifierList(id elements);
 NSString *OITIElementValuesSummary(id element);

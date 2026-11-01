@@ -1,14 +1,14 @@
 // OITIDownloadTracker.xm -- the download tracker, the Minimal pill window and the simulated test download (OITI download progress).
 //
 // Moved from Tweak.xm unchanged in the v0.3.0 module split (round 2, DownloadProgress). The download settings that the
-// preferences reload in Tweak.xm writes are defined here (they were file-level statics at the top of Tweak.xm) and declared
-// in OITIDownloadProgress.h. The Island element of the Detailed look is created by the notification presenter in Tweak.xm,
+// preferences reload (Shared/OITIPreferences.xm) writes are defined here (they were file-level statics at the top of Tweak.xm) and declared
+// in OITIDownloadProgress.h. The Island element of the Detailed look is created by the notification presenter (IslandNotifications/),
 // which keeps sDownloadItem, sDownloadShownAt and sDownloadDropCount; the tracker reads and updates them.
 
 #import "Shared/OITIShared.h"
 #import "DownloadProgress/OITIDownloadProgress.h"
 
-// The download settings (DownloadProgressEnabled and the keys below), written by the preferences reload in Tweak.xm.
+// The download settings (DownloadProgressEnabled and the keys below), written by the preferences reload (Shared/OITIPreferences.xm).
 BOOL sDownloadProgressEnabled;          // DownloadProgressEnabled (default NO)
 BOOL sDownloadAppStoreEnabled;          // DownloadAppStoreEnabled (default NO): feed the tracker from App Store downloads
 BOOL sDownloadTestFractionOnly;         // DownloadTestFractionOnly (default NO, defaults write only): the test download reports a percentage only

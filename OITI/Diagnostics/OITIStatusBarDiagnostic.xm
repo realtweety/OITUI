@@ -2,10 +2,11 @@
 //
 // Moved from Tweak.xm unchanged in the v0.3.0 module split (round 1, Diagnostics). It runs once at boot (also in
 // safe mode) and on every dump. The two provider-name helpers it calls live with the status bar provider choice in
-// Tweak.xm and are declared in Shared/OITIShared.h. Reference: DIAGNOSTICS.md, "Status bar".
+// StatusBar/ and are declared in StatusBar/OITIStatusBar.h. Reference: DIAGNOSTICS.md, "Status bar".
 
 #import "Shared/OITIShared.h"
 #import "Diagnostics/OITIDiagnostics.h"
+#import "StatusBar/OITIStatusBar.h"
 
 // =============================================================================================
 // MARK: Status bar provider diagnostic (read-only)

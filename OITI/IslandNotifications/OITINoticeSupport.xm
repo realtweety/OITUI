@@ -1,7 +1,7 @@
 // OITINoticeSupport.xm -- safe readers and research helpers for Island notifications (OITI).
 //
 // Moved from Tweak.xm unchanged in the v0.3.0 module split (round 4, IslandNotifications).
-// Exception-safe getters (OITISafeObject, OITIKVCObject, OITISafeBool), the element description helpers, the once-per-key trace,
+// Exception-safe getters moved to Shared/OITIRuntimeHelpers.xm in round 8. This file keeps the element description helpers, the once-per-key trace,
 // the live-element breadcrumb file and the crash-recovery check, and the element identifier stub class.
 
 #import "Shared/OITIShared.h"
@@ -32,24 +32,6 @@ static NSMutableSet<NSString *> *sStubSelectorsSeen;
 }
 @end
 
-// Returns an object-valued, no-argument selector's result, or nil if the object does not implement it with that shape.
-id OITISafeObject(id object, NSString *selectorName) {
-    if (!object || !selectorName.length) return nil;
-    SEL selector = NSSelectorFromString(selectorName);
-    if (![object respondsToSelector:selector]) return nil;
-    NSMethodSignature *signature = [object methodSignatureForSelector:selector];
-    if (!signature || signature.numberOfArguments != 2 || strcmp(signature.methodReturnType, "@") != 0) return nil;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-    return [object performSelector:selector];
-#pragma clang diagnostic pop
-}
-
-NSString *OITISafeString(id object, NSString *selectorName) {
-    id value = OITISafeObject(object, selectorName);
-    return [value isKindOfClass:[NSString class]] ? (NSString *)value : nil;
-}
-
 static NSNumber *OITIKVCNumber(id object, NSString *key) {
     if (!object) return nil;
     @try {
@@ -58,11 +40,6 @@ static NSNumber *OITIKVCNumber(id object, NSString *key) {
     } @catch (NSException *exception) {
         return nil;
     }
-}
-
-id OITIKVCObject(id object, NSString *key) {
-    if (!object) return nil;
-    @try { return [object valueForKey:key]; } @catch (NSException *exception) { return nil; }
 }
 
 // Which parts an element has (class name or nil). Real elements versus ours: the nil that breaks Apple's code is in here.
@@ -177,17 +154,3 @@ void OITITraceOnce(NSString *message) {
     [sLog logTag:@"ELEMENT" format:@"TRACE %@", message];
 }
 
-// First-stage prototype: verify launch gating and Island handoff with the existing custom-content element.
-// The final Hello video and dedicated media view are intentionally not part of this prototype.
-BOOL OITISafeBool(id object, NSString *selectorName, BOOL *available) {
-    if (available) *available = NO;
-    if (!object || !selectorName.length) return NO;
-    SEL selector = NSSelectorFromString(selectorName);
-    if (![object respondsToSelector:selector]) return NO;
-    NSMethodSignature *signature = [object methodSignatureForSelector:selector];
-    if (!signature || signature.numberOfArguments != 2) return NO;
-    const char *returnType = signature.methodReturnType;
-    if (!returnType || (returnType[0] != 'B' && returnType[0] != 'c')) return NO;
-    if (available) *available = YES;
-    return ((BOOL (*)(id, SEL))objc_msgSend)(object, selector);
-}

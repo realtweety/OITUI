@@ -1,8 +1,8 @@
 // OITIAppStoreSource.xm -- feeds the download tracker from the App Store's placeholders in SpringBoard (OITI download progress, stage 2).
 //
 // Moved from Tweak.xm unchanged in the v0.3.0 module split (round 2, DownloadProgress). It reads progress through the
-// instance-variable helpers of the install dump (Diagnostics/OITIInstallDump.xm) and calls OITISafeBool, which still lives
-// in Tweak.xm; both are declared in the shared headers.
+// instance-variable helpers and calls OITISafeBool; they live in Shared/OITIRuntimeHelpers.xm (round 8) and are declared in
+// Shared/OITIShared.h.
 
 #import "Shared/OITIShared.h"
 #import "DownloadProgress/OITIDownloadProgress.h"

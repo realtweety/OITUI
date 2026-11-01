@@ -15,10 +15,6 @@ void OITIRunDump(NSString *reason);
 void OITIRunStatusBarDiagnostic(NSString *reason);
 
 // OITIInstallDump.xm
-NSString *OITIInstallIvarScalarText(id object, Ivar ivar, const char *type, double *numberOut);
-id OITIInstallObjectGetter(id object, NSString *selectorName);
-id OITIInstallSharedInstance(Class cls, NSString **how);
-id OITIInstallApplicationForBundleID(id applicationController, NSString *bundleID);
 void OITIRunInstallDump(NSString *reason);
 
 // OITIDumpTriggers.xm

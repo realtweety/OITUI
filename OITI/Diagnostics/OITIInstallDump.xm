@@ -3,8 +3,7 @@
 // Moved from Tweak.xm unchanged in the v0.3.0 module split (round 1, Diagnostics): the snapshot and sampling code
 // that finds where the App Store and system installers keep download progress. Four of its helpers
 // (OITIInstallIvarScalarText, OITIInstallObjectGetter, OITIInstallSharedInstance, OITIInstallApplicationForBundleID)
-// are also called by the App Store download source in Tweak.xm; they are declared in OITIDiagnostics.h and are a
-// candidate to move into Shared when that round comes. Reference: DIAGNOSTICS.md, "Install progress dump".
+// are also called by the App Store download source; they moved to Shared/OITIRuntimeHelpers.xm in round 8. Reference: DIAGNOSTICS.md, "Install progress dump".
 
 #import "Shared/OITIShared.h"
 #import "Diagnostics/OITIDiagnostics.h"
@@ -36,7 +35,6 @@
 // The first part is a snapshot; then a few compact samples (InstallDumpSamples, default 6, every
 // InstallDumpIntervalSeconds, default 2) show whether values move and how often. Apple Mode does not switch this
 // off: it is a diagnostic like the other dumps and changes nothing on screen.
-
 
 static const NSUInteger kOITIInstallClassListCap = 120;
 static const NSUInteger kOITIInstallProbeMethodCap = 30;
@@ -253,32 +251,6 @@ static BOOL OITIInstallCallGetter(id target, Method method, NSString **textOut, 
     return YES;
 }
 
-// Reads a scalar instance variable by offset. Returns nil for types it does not handle.
-NSString *OITIInstallIvarScalarText(id object, Ivar ivar, const char *type, double *numberOut) {
-    const uint8_t *base = (const uint8_t *)(__bridge const void *)object;
-    const void *location = base + ivar_getOffset(ivar);
-    double number = NAN;
-    NSString *text = nil;
-    switch (type[0]) {
-        case 'B': { bool v; memcpy(&v, location, sizeof v); number = v ? 1 : 0; text = v ? @"YES" : @"NO"; break; }
-        case 'c': { signed char v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%d", (int)v]; break; }
-        case 'C': { unsigned char v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%u", (unsigned)v]; break; }
-        case 'i': { int v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%d", v]; break; }
-        case 'I': { unsigned int v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%u", v]; break; }
-        case 's': { short v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%d", (int)v]; break; }
-        case 'S': { unsigned short v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%u", (unsigned)v]; break; }
-        case 'l': { int32_t v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%d", (int)v]; break; }
-        case 'L': { uint32_t v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%u", (unsigned)v]; break; }
-        case 'q': { long long v; memcpy(&v, location, sizeof v); number = (double)v; text = [NSString stringWithFormat:@"%lld", v]; break; }
-        case 'Q': { unsigned long long v; memcpy(&v, location, sizeof v); number = (double)v; text = [NSString stringWithFormat:@"%llu", v]; break; }
-        case 'f': { float v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%.4f", (double)v]; break; }
-        case 'd': { double v; memcpy(&v, location, sizeof v); number = v; text = [NSString stringWithFormat:@"%.4f", v]; break; }
-        default: return nil;
-    }
-    if (numberOut) *numberOut = number;
-    return text;
-}
-
 static NSString *OITIInstallProgressText(NSProgress *progress) {
     NSMutableString *text = [NSMutableString string];
     @try {
@@ -337,23 +309,6 @@ static BOOL OITIInstallLooksRelevant(id object) {
     return NO;
 }
 
-id OITIInstallObjectGetter(id object, NSString *selectorName) {
-    if (!object) return nil;
-    SEL selector = NSSelectorFromString(selectorName);
-    Method method = class_getInstanceMethod([object class], selector);
-    if (!method) return nil;
-    char *type = method_copyReturnType(method);
-    BOOL isObject = type && type[0] == '@' && type[1] != '?';
-    free(type);
-    NSMethodSignature *signature = [object methodSignatureForSelector:selector];
-    if (!isObject || !signature || signature.numberOfArguments != 2) return nil;
-    @try {
-        return ((id (*)(id, SEL))objc_msgSend)(object, selector);
-    } @catch (NSException *exception) {
-        return nil;
-    }
-}
-
 // Text of one explicitly named zero-argument accessor (used for a few well-known icon accessors only).
 static NSString *OITIInstallExplicitGetterText(id object, NSString *name) {
     if (!object) return @"nil";
@@ -363,25 +318,6 @@ static NSString *OITIInstallExplicitGetterText(id object, NSString *name) {
     double number = NAN;
     id result = nil;
     return OITIInstallCallGetter(object, method, &text, &number, &result) ? text : @"(not callable)";
-}
-
-id OITIInstallSharedInstance(Class cls, NSString **how) {
-    if (!cls) return nil;
-    for (NSString *name in @[@"sharedInstanceIfExists", @"sharedInstance", @"sharedController", @"sharedManager"]) {
-        SEL selector = NSSelectorFromString(name);
-        if (![cls respondsToSelector:selector]) continue;
-        id instance = nil;
-        @try {
-            instance = ((id (*)(Class, SEL))objc_msgSend)(cls, selector);
-        } @catch (NSException *exception) {
-            instance = nil;
-        }
-        if (instance) {
-            if (how) *how = name;
-            return instance;
-        }
-    }
-    return nil;
 }
 
 // Short identification for an app, placeholder or icon: whichever of these getters exist.
@@ -590,16 +526,6 @@ static NSArray *OITIInstallItemsFromResult(id result) {
     if ([result isKindOfClass:[NSOrderedSet class]]) return [(NSOrderedSet *)result array];
     if ([result isKindOfClass:[NSDictionary class]]) return [(NSDictionary *)result allValues];
     return nil;
-}
-
-id OITIInstallApplicationForBundleID(id applicationController, NSString *bundleID) {
-    SEL selector = NSSelectorFromString(@"applicationWithBundleIdentifier:");
-    if (!applicationController || ![applicationController respondsToSelector:selector]) return nil;
-    @try {
-        return ((id (*)(id, SEL, id))objc_msgSend)(applicationController, selector, bundleID);
-    } @catch (NSException *exception) {
-        return nil;
-    }
 }
 
 // Calls every collection getter of `owner` that names applications, placeholders or icons and adds what it holds.

@@ -4,4 +4,5 @@
 
 // OITIIslandHooks.xm
 CGFloat OITIClampMetricsFactor(CGFloat value);   // keeps an Island size multiplier in a safe range
+void OITIRefreshIslandLayout(void);               // asks the Island windows to lay out again (preferences reload)
 void OITIInstallIslandSizeHooks(void);            // initialises the OITIHooks group

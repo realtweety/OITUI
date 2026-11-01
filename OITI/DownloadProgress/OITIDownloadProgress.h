@@ -2,11 +2,11 @@
 //
 // The module is OITIDownloadViews.xm (bar and views), OITIDownloadTracker.xm (tracker, Minimal pill, test download) and
 // OITIAppStoreSource.xm (App Store source). The class declarations below moved here unchanged from the files that
-// implement them, because the notification presenter in Tweak.xm and the pill use them too.
+// implement them, because the notification presenter and the pill use them too.
 
 #import "Shared/OITIShared.h"
 
-// The settings (defined in OITIDownloadTracker.xm, written by the preferences reload in Tweak.xm).
+// The settings (defined in OITIDownloadTracker.xm, written by the preferences reload in Shared/OITIPreferences.xm).
 extern BOOL sDownloadProgressEnabled;
 extern BOOL sDownloadAppStoreEnabled;
 extern BOOL sDownloadTestFractionOnly;

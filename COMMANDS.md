@@ -872,7 +872,7 @@ Report: a bar that never appears (and the `DOWNLOAD` lines), a wrong percentage 
 
 Each round of the `Tweak.xm` split is built and checked on its own before the next one starts. Behavior must not change, so the check is: it builds, nothing looks different, and the module's own features still work. The build tag stays `OITI-exp-2026-10-26-a` during the split, so tell builds apart by the `[MARK]` lines below.
 
-Before building, run the mechanical check from the repo root (it needs only `python3` and `git`, no phone). `--old HEAD` compares with the last commit, so run it before committing the round; after the commit use `--old HEAD~1`. If several rounds are ever left uncommitted, `HEAD` stays at the last commit, so the check covers every round since then and needs one `--allow-wrapper NAME` for each `%init` wrapper added in those rounds (so far `OITIInstallIslandSizeHooks`, `OITIInstallResearchHooks` and `OITIInstallDiagnosticHooks`). It must print `RESULT: OK`:
+Before building, run the mechanical check from the repo root (it needs only `python3` and `git`, no phone). `--old HEAD` compares with the last commit, so run it before committing the round; after the commit use `--old HEAD~1`. If several rounds are ever left uncommitted, `HEAD` stays at the last commit, so the check covers every round since then and needs one `--allow-wrapper NAME` for each `%init` wrapper added in those rounds (so far `OITIInstallIslandSizeHooks`, `OITIInstallResearchHooks`, `OITIInstallDiagnosticHooks` and `OITIInstallStatusBarHooks`). It must print `RESULT: OK`:
 
 ```
 cd ~/OITUI
@@ -1007,3 +1007,66 @@ grep -E 'STACK|AUTH|TAP|SWIPE|GUARD caught|RECOVERY|banner request|registered' /
 Expected: the same kinds of lines as before the split (`banner request` and `registered` per notification, `TAP` after a tap, `SWIPE` after a swipe, `AUTH` at level 1) and no `GUARD caught`.
 
 Report: a build error (the first lines), a step above that behaves differently from before the split, or a crash or respring.
+
+### Round 5: Startup (file in `OITI/Startup/`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD`; no `--allow-wrapper` is needed, this round adds no `%init` wrapper). Settings > Insula > **Startup Animation**.
+
+1. Switch **Enable Hello Animation (Prototype)** on, then `sbreload`. Unlock and stay on the Home Screen: the Hello clip plays once in the Island, muted, and the Island element disappears when it ends.
+2. Cooldown: `sbreload` again within five minutes, the animation does not play; after five minutes it does.
+3. Gate: `sbreload`, stay on the Lock Screen; nothing plays until you unlock onto the Home Screen. Open an app right after unlocking: the animation does not appear over it.
+4. Interruption: start a charging activity or a call, or send a notification while it plays; the card yields to it (`yielding startup card` in the log).
+5. Toggle off: the setting stops it at the next respring; switching it off while it plays removes the element.
+
+```
+grep -E 'HELLO' /tmp/OITIDebug.log | tail -30
+```
+
+Needs `DiagnosticsLevel` 1 (`HELLO` lines are level 1). Expected: `waiting`/`created muted, single-play video view`/`startup prototype presented`, or the `suppressed by five-minute cooldown` and `yielding startup card` lines in steps 2 and 4.
+
+Report: a build error (the first lines), a step above that behaves differently from before the split, or a crash or respring.
+
+### Round 6: StatusBar (file in `OITI/StatusBar/`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallStatusBarHooks`). Settings > Insula > **Status Bar Layout**; section 12 has the details. The 8 Plus runs the provider code inert, so the check is that nothing changed:
+
+1. After the install and `sbreload`, the status bar looks stock: no red `rdar:45025538` bar, clock, signal and battery in place, with the Island on and off.
+2. Settings > Insula > Status Bar Layout: switch between Automatic and Off, respring each time; the status bar stays normal.
+3. Respring-loop guard (section 7): safe mode still turns the status bar hooks off (no `CHOICE` lines in safe mode).
+
+```
+grep -E 'CHOICE|STATUSBAR|SESSION' /tmp/OITIDebug.log | tail -20
+```
+
+Expected: one `CHOICE` line per distinct combination (level 0), `READY hooks installed`, and at `DiagnosticsLevel` 1 the `LIVE` lines from the status bars.
+
+Report: a build error (the first lines), a status bar that looks different, or a crash or respring.
+
+### Round 7: Shared and core (files in `OITI/Shared/` and `OITI/Safety/`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallStatusBarHooks`; this round adds no `%init` wrapper). The round moves the shared state, the preferences reload, the respring-loop guard and the startup self-check, so it touches everything and the check covers the whole tweak.
+
+1. Stock settings (every Island setting at its default) still look stock; banners and the settings pages open and save.
+2. Live settings: change the Island color, transparency and relative scale in Settings > Insula; the Island follows without a respring. Change a Download setting and a Notifications setting once each (section 14).
+3. Respring-loop guard and safe mode (section 7): the loop test still ends in safe mode with the banner on the Settings page; **Clear Safe Mode & Respring** brings the hooks back.
+4. Self-check: with the Island on, `grep CHECK /tmp/OITIDebug.log` shows `OK spoof state matches islandEnabled`.
+5. Apple Mode on and off; the Hello animation, a notification in the Island and a test download each work once.
+
+```
+grep -E 'SESSION|GUARD|SAFE|CHECK|PREF' /tmp/OITIDebug.log | tail -30
+```
+
+Expected: `READY hooks installed`, `OK spoof state matches islandEnabled`, a `CHANGED` line at `DiagnosticsLevel` 1 when you change a setting, and in the loop test the `GUARD` lines that lead to safe mode.
+
+Report: a build error (the first lines), a setting that no longer applies live, safe mode not engaging or not clearing, or a crash or respring.
+
+### Round 8: shared runtime helpers (file `OITI/Shared/OITIRuntimeHelpers.xm`)
+
+Run the check and the build from the top of this section (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInstallStatusBarHooks`). The round moves eight getter helpers that three modules and the install dump call, so the check is that each caller still works:
+
+1. Hello animation: switch **Enable Hello Animation (Prototype)** on, `sbreload`, unlock; it plays once (it uses `OITISafeObject` and `OITISafeBool` for the lock and Home Screen checks).
+2. Island notifications: a notification shows in the Island with title, message and app name (uses `OITISafeString`); tapping it still opens the app (uses `OITIKVCObject`).
+3. Download progress: **Show Download Progress** with the App Store source on, start a real App Store download; the Island follows it (uses the install helpers).
+4. Install dump (needs `DiagnosticsLevel` 1): `touch /tmp/OITIInstallDump.trigger`, then `grep -c INSTALL /tmp/OITIDebug.log` is above 0.
+
+Report: a build error (the first lines), a step that behaves differently from before the split, or a crash or respring.

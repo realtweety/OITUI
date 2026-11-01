@@ -3,7 +3,10 @@
 // Moved from Tweak.xm unchanged in the v0.3.0 module split (round 3, IslandSize): the position helpers (Island and banner),
 // Apple's canvas scale, the size multipliers and the OITIHooks group (SBSystemApertureWindow, the curtain, gain map and
 // content view, the touch pass-through view, SBBannerWindow, SBUISystemApertureLayoutMetrics). The settings these read are
-// still defined in Tweak.xm (declared in Shared/OITIShared.h); the preferences reload there writes them.
+// defined in Shared/OITIState.xm (declared in Shared/OITIShared.h); the preferences reload in Shared/OITIPreferences.xm writes them.
+//
+// Round 7 added OITIRefreshIslandLayout (and its helper) from the old preferences section: it only marks Island windows and views
+// for layout, so it lives with the hooks.
 //
 // A Logos group can only be initialised in the file that defines it, so OITIInstallIslandSizeHooks at the end of this
 // file does the %init and the %ctor in Tweak.xm calls it where it used to say %init(OITIHooks).
@@ -323,6 +326,40 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 %end
 
 %end
+
+// Asks the Island windows to lay out again so new settings (scale, position) apply immediately. The layoutSubviews
+// hook does the actual work. Harmless when no window has been seen yet (or in safe mode, when no hook exists).
+//
+// The custom color, transparency and outline settings are applied in the layoutSubviews of two inner view classes, and
+// setNeedsLayout on a window does not reach them, so those views are marked too. The custom banner position lives in
+// the banner window's frame, which is set again here. Turning the banner position OFF only takes effect the next time
+// the system sets the banner frame (the next banner), because OITI does not know the original frame.
+static void OITIMarkOverrideViewsForLayout(UIView *view, NSUInteger depth) {
+    static Class contentClass;
+    static Class passThroughClass;
+    if (!contentClass) contentClass = NSClassFromString(@"_SBSystemApertureContainerViewContentView");
+    if (!passThroughClass) passThroughClass = NSClassFromString(@"SBFTouchPassThroughView");
+    if ((contentClass && [view isKindOfClass:contentClass]) || (passThroughClass && [view isKindOfClass:passThroughClass])) {
+        [view setNeedsLayout];
+    }
+    if (depth >= 12) return;
+    for (UIView *subview in view.subviews) OITIMarkOverrideViewsForLayout(subview, depth + 1);
+}
+
+void OITIRefreshIslandLayout(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (UIView *window in sLiveApertureWindows.allObjects) {
+            [window setNeedsLayout];
+            OITIMarkOverrideViewsForLayout(window, 0);
+        }
+        if (notificationFix || notEnabled) {
+            for (UIView *banner in sBannerWindows.allObjects) {
+                CGRect current = banner.frame;
+                banner.frame = current;   // the setFrame: hook applies the override
+            }
+        }
+    });
+}
 
 void OITIInstallIslandSizeHooks(void) {
     %init(OITIHooks);
