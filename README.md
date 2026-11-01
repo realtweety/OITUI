@@ -93,9 +93,9 @@ OITCore is the common library my tweaks share: logging, preferences, device info
 
 ---
 
-# Status, as of October 28, 2026
+# Status, as of October 31, 2026
 
-- **Insula** is where all the work is going. The latest release is 0.2.0. Version 0.3.0 is in progress and a beta is coming, with Download Progress, Apple Mode, live colour, opacity and offset settings, relative scaling, safe-mode visibility and a fix for a crash when picking some options in Settings.
+- **Insula** is where all the work is going. The latest release is 0.2.5, which adds Download Progress, Apple Mode, live colour, opacity and offset settings, relative scaling, visible safe mode and expanded-Island crash recovery on top of 0.2.0, and renames the project. Version 0.3.0 will be a polish release: every current Insula feature gets tested, tightened and finished, with no big new features.
 - **Litus** is paused.
 - **OITCore** changes only when the tweaks need it.
 
@@ -103,10 +103,11 @@ OITCore is the common library my tweaks share: logging, preferences, device info
 
 # Installation
 
-**Latest release:** [Tellus v0.2.0](https://github.com/realtweety/OITUI/releases/tag/v0.2.0). Install both `.deb` files, **OITCore** and **Insula** (OITI). OITCore first, or both in one `dpkg -i`. Insula will not install without OITCore.
+**Latest release:** [Tellus v0.2.5](https://github.com/realtweety/OITUI/releases/tag/v0.2.5). Install both `.deb` files, **OITCore** and **Insula** (OITI). OITCore first, or both in one `dpkg -i`. Insula will not install without OITCore.
 
 Older releases:
 
+- [v0.2.0](https://github.com/realtweety/OITUI/releases/tag/v0.2.0): Island notification stack, the Hello startup animation prototype and more responsive Settings
 - [v0.1.0](https://github.com/realtweety/OITUI/releases/tag/v0.1.0): the latest release of OITI and OITCore at that time
 - [first_release](https://github.com/realtweety/OITUI/releases/tag/first_release): the latest release of OITS (Litus) and the first releases of OITI and OITCore
 

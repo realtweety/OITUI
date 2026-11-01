@@ -465,7 +465,7 @@ One-time repository settings (†). Allows only squash merges and deletes merged
 gh api -X PATCH repos/realtweety/OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases are created only from tested work on `main`. Build on the **Mac**, ship OITCore and OITI together, and do not ship OITS until it is verified. The current release is `v0.2.0` (OITI package version `0.2.0`; OITCore remains `0.1.0`).
+Releases are created only from tested work on `main`. Build on the **Mac**, ship OITCore and OITI together, and do not ship OITS until it is verified. The current release is `v0.2.5` (OITI package version `0.2.5`; OITCore remains `0.1.0`).
 
 After the PR is merged, run on the Mac from a clean checkout of `main`:
 
@@ -502,12 +502,12 @@ dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb
 sbreload
 ```
 
-Then check the Island, the settings pages and the sliders. When it all works, publish from the Mac. For `v0.2.0`:
+Then check the Island, the settings pages and the sliders. When it all works, publish from the Mac. For `v0.2.5`:
 
 ```
-git tag -a v0.2.0 -m "OITUI 0.2.0"
-git push origin v0.2.0
-gh release create v0.2.0 --title "OITUI 0.2.0" --notes-file RELEASE_NOTES_0.2.0.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
+git tag -a v0.2.5 -m "OITUI 0.2.5"
+git push origin v0.2.5
+gh release create v0.2.5 --title "OITUI 0.2.5" --notes-file RELEASE_NOTES_0.2.5.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
 ```
 
 | Command | What it does | Where |
