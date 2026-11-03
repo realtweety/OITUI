@@ -32,13 +32,7 @@ jobs:
       - name: Install build dependencies
         run: |
           brew install ldid fakeroot xz
-          export HOMEBREW_NO_INSTALL_FROM_API=1 HOMEBREW_NO_AUTO_UPDATE=1
-          brew tap --force homebrew/core
-          CORE_TAP="$(brew --repository homebrew/core)"
-          git -C "$CORE_TAP" fetch --depth=1 origin 7a4dabfc1a2acd9f01a1670fde4f0094c4fb6ffa
-          git -C "$CORE_TAP" checkout --detach FETCH_HEAD
-          brew install --force-bottle dpkg
-          brew pin dpkg
+
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git "$RUNNER_TEMP/theos"
