@@ -31,7 +31,8 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          brew install ldid fakeroot xz
+          brew install ldid fakeroot xz make
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
 
       - name: Install Theos
         run: |
