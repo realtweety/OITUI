@@ -32,7 +32,7 @@ jobs:
       - name: Install build dependencies
         run: |
           brew install ldid fakeroot xz
-          brew install --from-bottle \
+          brew install --force-bottle \
             https://raw.githubusercontent.com/Homebrew/homebrew-core/7a4dabfc1a2acd9f01a1670fde4f0094c4fb6ffa/Formula/d/dpkg.rb
           brew pin dpkg
 
