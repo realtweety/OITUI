@@ -1,0 +1,83 @@
+name: Build Insula (OITI)
+
+on:
+  push:
+    branches:
+      - experiments
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oiti-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build OITCore + OITI
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check Xcode
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install build dependencies
+        run: |
+          brew install ldid fakeroot xz
+          brew install --from-bottle \
+            https://raw.githubusercontent.com/Homebrew/homebrew-core/7a4dabfc1a2acd9f01a1670fde4f0094c4fb6ffa/Formula/d/dpkg.rb
+          brew pin dpkg
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$RUNNER_TEMP/theos"
+          echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
+
+      - name: Install iOS 16.5 SDK
+        run: |
+          mkdir -p "$THEOS/sdks"
+
+          curl --fail --location --retry 3 \
+            "https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz" \
+            --output "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz"
+
+          tar -xJf "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz" \
+            -C "$THEOS/sdks"
+
+          test -d "$THEOS/sdks/iPhoneOS16.5.sdk"
+
+      - name: Build OITCore
+        working-directory: OITCore
+        run: |
+          DEBUG=1 make clean package
+          test -f "$THEOS/lib/iphone/rootless/OITCore.dylib"
+
+      - name: Build OITI
+        working-directory: OITI
+        run: |
+          DEBUG=1 make clean package
+
+      - name: Collect packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/tellus-packages"
+
+          cp OITCore/packages/*.deb OITI/packages/*.deb \
+            "$RUNNER_TEMP/tellus-packages/"
+
+          ls -lh "$RUNNER_TEMP/tellus-packages"
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: tellus-oiti-${{ github.sha }}
+          path: ${{ runner.temp }}/tellus-packages/*.deb
+          if-no-files-found: error
+          retention-days: 7
