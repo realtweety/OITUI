@@ -32,8 +32,9 @@ jobs:
       - name: Install build dependencies
         run: |
           brew install ldid fakeroot xz
+          brew tap --force homebrew/core
           brew install --force-bottle \
-            https://raw.githubusercontent.com/Homebrew/homebrew-core/7a4dabfc1a2acd9f01a1670fde4f0094c4fb6ffa/Formula/d/dpkg.rb
+            https://raw.githubusercontent.com/homebrew/homebrew-core/7a4dabfc1a2acd9f01a1670fde4f0094c4fb6ffa/Formula/d/dpkg.rb
           brew pin dpkg
 
       - name: Install Theos
