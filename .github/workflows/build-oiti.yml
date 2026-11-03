@@ -17,6 +17,8 @@ jobs:
     name: Build OITCore + OITI
     runs-on: macos-15-intel
     timeout-minutes: 30
+    env:
+      THEOS_COMMIT: 6e7b8c40e0f5f9f5b2377800dc1e42cd2560d24a
 
     steps:
       - name: Check out repository
@@ -29,6 +31,16 @@ jobs:
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
 
+      - name: Cache Theos, iOS SDK, and Homebrew downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ runner.temp }}/theos
+            ~/Library/Caches/Homebrew
+          key: theos-${{ runner.os }}-${{ runner.arch }}-${{ env.THEOS_COMMIT }}-ios16.5-homebrew-v1
+          restore-keys: |
+            theos-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install build dependencies
         run: |
           brew install ldid fakeroot xz make
@@ -36,19 +48,28 @@ jobs:
 
       - name: Install Theos
         run: |
-          git clone --recursive https://github.com/theos/theos.git "$RUNNER_TEMP/theos"
+          if [ ! -d "$RUNNER_TEMP/theos/.git" ]; then
+            rm -rf "$RUNNER_TEMP/theos"
+            git clone --depth=1 https://github.com/theos/theos.git "$RUNNER_TEMP/theos"
+          fi
+
+          if [ "$(git -C "$RUNNER_TEMP/theos" rev-parse HEAD)" != "$THEOS_COMMIT" ]; then
+            git -C "$RUNNER_TEMP/theos" fetch --depth=1 origin "$THEOS_COMMIT"
+            git -C "$RUNNER_TEMP/theos" checkout --force --detach FETCH_HEAD
+          fi
+
+          git -C "$RUNNER_TEMP/theos" submodule sync --recursive
+          git -C "$RUNNER_TEMP/theos" submodule update --init --recursive --depth 1
           echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
 
       - name: Install iOS 16.5 SDK
         run: |
           mkdir -p "$THEOS/sdks"
 
-          curl --fail --location --retry 3 \
-            "https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz" \
-            --output "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz"
-
-          tar -xJf "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz" \
-            -C "$THEOS/sdks"
+          if [ ! -d "$THEOS/sdks/iPhoneOS16.5.sdk" ]; then
+            curl --fail --location --retry 3 "https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz" --output "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz"
+            tar -xJf "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz" -C "$THEOS/sdks"
+          fi
 
           test -d "$THEOS/sdks/iPhoneOS16.5.sdk"
 
@@ -71,6 +92,11 @@ jobs:
             "$RUNNER_TEMP/tellus-packages/"
 
           ls -lh "$RUNNER_TEMP/tellus-packages"
+
+      - name: Remove generated OITCore output before caching
+        run: |
+          rm -f "$THEOS/lib/iphone/rootless/OITCore.dylib"
+          rm -rf "$THEOS/include/OITCore"
 
       - name: Upload packages
         uses: actions/upload-artifact@v7
