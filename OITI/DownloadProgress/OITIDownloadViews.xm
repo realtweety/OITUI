@@ -224,6 +224,60 @@ static const CGFloat kOITIMinimalBarHeight = 7.0;
 }
 @end
 
+// The completion badge of the Detailed look: a green circle that pops in with a white check drawn inside it (stroke animation),
+// like the Minimal look's check but small enough for the trailing slot. With Reduce Motion on it appears at once.
+@implementation OITICheckBadgeView {
+    CAShapeLayer *_check;
+}
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.backgroundColor = OITIDownloadGreen();
+        self.userInteractionEnabled = NO;
+        _check = [CAShapeLayer layer];
+        _check.fillColor = nil;
+        _check.strokeColor = UIColor.whiteColor.CGColor;
+        _check.lineCap = kCALineCapRound;
+        _check.lineJoin = kCALineJoinRound;
+        [self.layer addSublayer:_check];
+    }
+    return self;
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat d = MIN(self.bounds.size.width, self.bounds.size.height);
+    self.layer.cornerRadius = d / 2.0;
+    _check.frame = self.bounds;
+    _check.lineWidth = MAX(1.5, d * 0.11);
+    UIBezierPath *path = [UIBezierPath bezierPath];   // the same proportions as the Minimal look's check
+    [path moveToPoint:CGPointMake(d * 0.28, d * 0.52)];
+    [path addLineToPoint:CGPointMake(d * 0.43, d * 0.67)];
+    [path addLineToPoint:CGPointMake(d * 0.72, d * 0.35)];
+    _check.path = path.CGPath;
+}
+- (void)playAnimated:(BOOL)animated {
+    [self layoutIfNeeded];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _check.strokeEnd = 1.0;
+    [CATransaction commit];
+    if (!animated) return;
+    self.transform = CGAffineTransformMakeScale(0.5, 0.5);
+    self.alpha = 0.0;
+    [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.7 initialSpringVelocity:0.0 options:0 animations:^{
+        self.transform = CGAffineTransformIdentity;
+        self.alpha = 1.0;
+    } completion:nil];
+    CABasicAnimation *draw = [CABasicAnimation animationWithKeyPath:@"strokeEnd"];
+    draw.fromValue = @0.0;
+    draw.toValue = @1.0;
+    draw.duration = 0.28;
+    draw.beginTime = [_check convertTime:CACurrentMediaTime() fromLayer:nil] + 0.14;
+    draw.fillMode = kCAFillModeBackwards;
+    draw.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+    [_check addAnimation:draw forKey:@"draw"];
+}
+@end
+
 // The expanded body of the download element: the bar with one line of text under it.
 OITINoticeStackView *OITIBuildDownloadStack(OITIProgressBarView **barOut, UILabel **detailOut) {
     OITIProgressBarView *bar = [[OITIProgressBarView alloc] initWithFrame:CGRectZero];

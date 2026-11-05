@@ -15,8 +15,8 @@
 //             in a SBUISystemApertureCustomContentProvider held by a SBUISystemApertureContentProvider. It is registered with
 //             -[SBSystemApertureController registerElement:], the registrar SpringBoard's own providers use, and Apple's code
 //             hosts it like any other element. With islandNotificationStackEnabled (default ON), up to four stay registered:
-//             in Expanded/Wide style the newest prefers that layout and older notices render as distinct rounded cards inside
-//             its secondary content; Compact keeps all four compact. The older cards share the outer expanded Island card.
+//             the newest is the Island notification in the chosen Style, and the older notices are drawn by OITI as small cards
+//             in a window of its own below the Island (OITINoticeStackCards.xm), each with its own tap and swipe up.
 //             New notices evict the oldest; each item's timeout restarts when it is demoted to compact or promoted.
 //             With stacking OFF, only one item is kept and new notices replace it. Settings warns the stack is usable but unpolished.
 //   Hide:     islandNotificationsHideBanner (default OFF) fades the stock banner window out until the banner is gone. It only does
@@ -29,11 +29,14 @@
 //             default 0, restored afterwards).
 //   Touch:    a tap runs what tapping the stock banner runs (NCNotificationViewController -_executeDefaultAction: on the still-alive
 //             but faded banner), so it opens the conversation or screen the notification would open; if that banner is gone it falls
-//             back to the default action's URL and then to launching the app. Swipe up dismisses. Recognizers sit on Apple's
+//             back to the default action's URL and then to launching the app. Swipe up dismisses; with NotificationTapDismisses
+//             (default OFF, forced off by Apple Mode) a tap on a notification notice also removes it after the tap was handled
+//             (never the Hello or a download). Recognizers sit on Apple's
 //             SAUIElementView and on the Island window (the window ones only take touches that start inside the element) and are
 //             removed with the element.
 //   Haptic:   NotificationHaptic (default OFF) plays one short light haptic per banner request, independent of the Island
-//             notification setting. It does not fire for notifications delivered straight to the lock screen.
+//             notification setting (but not under Apple Mode, which forces sNotificationHapticEnabled off). It does not fire
+//             for notifications delivered straight to the lock screen.
 //   Safety:   -[SAUISystemApertureManager _reevaluatePromotedElements] is wrapped. While one of OITI's elements is live, an exception
 //             there (where a malformed element crashed SpringBoard during development) is caught and logged (ELEMENT GUARD) and the
 //             element is invalidated; after 5 catches element creation stays off until the next respring. With none of OITI's
@@ -85,7 +88,7 @@
 // "download-progress", expanded layout), so the breadcrumb, the recovery window, the stack and swipe-to-dismiss apply to it;
 // it needs preferredAlertingDuration: to answer 24 h for it and has drop detection (see OITIDownloadsRefresh). Either look
 // ends when the downloads finish (a short "complete" state), when a limit is reached (DownloadIdleAfterMB downloaded or
-// DownloadIdleAfterSeconds on screen, 0 = never; the size limit only applies to byte-based downloads), or when it is swiped
+// DownloadIdleAfterSeconds on screen, or DownloadIdleAfterPercent reached, 0 = never; the size limit only applies to byte-based downloads), or when it is swiped
 // away. After a limit or a dismissal it stays away until the next download starts; the download itself carries on.
 // The tracker takes two kinds of input and aggregates several downloads: bytes (OITIDownloadUpdate: sizes, speed and a size
 // limit) and a fraction (OITIDownloadUpdateFraction: percentage and an estimate of the time left from how fast the fraction
@@ -105,8 +108,8 @@
 //
 // APPLE MODE: key appleMode (OITI main page). While on, every Island customization behaves as if it were
 // off and the Island is the stock iOS one: custom position, custom scale, Island size, color, opacity, outline hiding,
-// hide when not in use, custom notification position, Island Notifications (and hiding the banner for them) and the
-// startup animation. Kept as the user set them: Enable Dynamic Island, Fix Island Position, Fix Notification
+// hide when not in use, custom notification position, Island Notifications (and hiding the banner for them, and with them
+// the notification stack), the notification haptic, download progress and the startup animation. Kept as the user set them: Enable Dynamic Island, Fix Island Position, Fix Notification
 // Positioning, the Status Bar Layout fix, safe mode and diagnostics. The stored settings are never changed, so
 // turning Apple Mode off brings every customization back as it was. Applied in one place (preferencesChanged).
 //
@@ -188,7 +191,7 @@
 #import "Safety/OITISafety.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-exp-2026-10-26-a";
+extern NSString * const kOITIBuildTag = @"OITI-exp-2026-11-03-d";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITITestDownloadStartNotification = @"com.wilburt.oiti/TestDownloadStart";
@@ -204,6 +207,15 @@ static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
     sLog.ignoredImageNames = @[@"OITI.dylib", @"OITCore.dylib"];
     [sLog logSessionStartWithBuildTag:kOITIBuildTag];
 
+    // Respring-loop guard FIRST, before preferencesChanged() or anything else that could fail (v0.3.0 polish, batch 2).
+    // Step 1 records this launch, step 2 decides. If the guard trips, preferencesChanged() is skipped below, so a crash in
+    // that code can no longer repeat forever. tools/check_ctor_path.py checks this order. A new launch also ends an
+    // "Island elements are off" state (the file only tells Settings about it).
+    OITIPrepareEarlyPreferences();
+    OITIGuardBeginLaunch();
+    sSafeModeActive = OITIEvaluateLoopGuard();
+    OITIClearElementsOffFlag();
+
     sApertureWindows = [NSHashTable weakObjectsHashTable];
     sObservedApertureManagers = [NSHashTable weakObjectsHashTable];
     sBannerWindows = [NSHashTable weakObjectsHashTable];
@@ -211,12 +223,14 @@ static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
     sLoggedProviderChoices = [NSMutableSet set];
     sLoggedStatusBars = [NSHashTable weakObjectsHashTable];
 
-    preferencesChanged();
+    if (sSafeModeActive) OITIApplySafeModePreferences();
+    else preferencesChanged();
     sIslandEnabledAtLaunch = islandEnabled;
     sStartupHelloObservationWindowOpen = NO;
 
     OITObserveDarwinNotification(kOITIPrefsChangedNotification, ^{
-        preferencesChanged();
+        if (sSafeModeActive) OITIApplySafeModePreferences();
+        else preferencesChanged();
     });
     OITObserveDarwinNotification(kOITIClearSafeModeNotification, ^{
         BOOL removed = [[NSFileManager defaultManager] removeItemAtPath:kOITISafeModePath error:nil];
@@ -225,7 +239,6 @@ static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
          removed ? @"removed" : @"was not present"];
     });
 
-    sSafeModeActive = OITIEvaluateLoopGuard();
     if (sSafeModeActive) {
         [sLog logTag:@"SESSION" format:@"SAFE MODE: OITI hooks NOT installed. Diagnostics and dumps still work."];
     } else {

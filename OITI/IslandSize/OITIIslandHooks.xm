@@ -14,6 +14,7 @@
 #import "Shared/OITIShared.h"
 #import "IslandSize/OITIIslandSize.h"
 #import "Diagnostics/OITIDiagnostics.h"
+#import "OITIPositionLimits.h"   // one-screen limit for the typed positions (UIKit: used from layout code only)
 
 static const void *kOITIAppliedScaleKey = &kOITIAppliedScaleKey;
 static const void *kOITIHiddenByUsKey = &kOITIHiddenByUsKey;
@@ -61,9 +62,12 @@ static void OITIApplyIslandPosition(UIView *window) {
     if (profile) {
         frame.origin.y = profile->islandY / sy;
     } else if (posEnabled) {
-        frame.origin.y = yPos / sy;
+        // Stored values are finite and within kOITIPositionCeiling; the one-screen limit is applied here, where UIKit is up.
+        CGFloat yUse = OITIClampedPositionForUse(yPos, NO);
+        CGFloat xUse = OITIClampedPositionForUse(xPos, YES);
+        frame.origin.y = yUse / sy;
         // Original behavior: with scaling on, only override x when it is set; without scaling, always set it.
-        if (!scaleEnabled || xPos > 0) frame.origin.x = xPos / sx;
+        if (!scaleEnabled || xUse > 0) frame.origin.x = xUse / sx;
     } else {
         return;
     }
@@ -83,7 +87,7 @@ static BOOL OITIBannerFrame(CGRect incoming, CGRect *out) {
     }
     if (notEnabled) {
         CGSize size = profile ? CGSizeMake(profile->bannerWidth, profile->bannerHeight) : incoming.size;
-        *out = CGRectMake(xNot, yNot, size.width, size.height);
+        *out = CGRectMake(OITIClampedPositionForUse(xNot, YES), OITIClampedPositionForUse(yNot, NO), size.width, size.height);
         return YES;
     }
     return NO;
@@ -191,8 +195,10 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
     if (colorEnabled) {
         // Only touch the color when nothing set one, or when the color is the one we applied earlier
         // (so changing the color in prefs takes effect without a respring).
+        // The color is always opaque. Transparency comes only from Use Custom Opacity (the `alpha` setting, applied once to
+        // the touch pass-through subview below), so the same value is never applied twice (v0.3.0 polish, A1).
         if (!backgroundColor || ours) {
-            UIColor *customColor = [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
+            UIColor *customColor = [UIColor colorWithRed:red green:green blue:blue alpha:1.0];
             if (!backgroundColor || ![backgroundColor isEqual:customColor]) {
                 [self setBackgroundColor:customColor];
                 OITLOGGER_LOG_RATED(sLog, 1, @"COLOR", @"color.apply", 4,

@@ -12,9 +12,57 @@
 #import "IslandNotifications/OITIIslandNotifications.h"
 #import "Startup/OITIStartup.h"
 #import "StatusBar/OITIStatusBar.h"
+#import "OITIPositionValues.h"   // strict parsing for the typed position settings (Foundation only: this file runs from %ctor)
 
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSDictionary<NSString *, NSNumber *> *sLastPrefSnapshot;
+
+// One of the four typed position settings (xPos, yPos, xNot, yNot). The Settings text field stores a string, `defaults write`
+// stores a number. A string that is not a plain number (empty, "abc", "nan", "1e30") gives the setting's default instead of 0,
+// and the result is always finite and inside kOITIPositionCeiling. The tighter limit of one screen needs UIScreen, which must
+// not be touched from here (this runs from %ctor, before UIKit is up), so it is applied where the value is used
+// (OITIClampedPositionForUse in IslandSize/OITIIslandHooks.xm).
+static CGFloat OITIReadPositionPreference(NSString *key, CGFloat fallback) {
+    id raw = [sOITIPreferences objectForKey:key default:nil];
+    double value = fallback;
+    BOOL valid = YES;
+    if ([raw isKindOfClass:[NSNumber class]]) value = [raw doubleValue];
+    else if ([raw isKindOfClass:[NSString class]]) valid = OITIParsePositionText(raw, &value);
+    CGFloat result = valid ? (CGFloat)OITISanitizedPosition(value, fallback, kOITIPositionCeiling) : fallback;
+    if (raw && (!valid || !isfinite(value) || fabs(result - value) > 0.0001)) {
+        [sLog logLevel:1 tag:@"PREF" format:@"position %@ = %@ is %@, using %.1f", key, raw,
+         (valid && isfinite(value)) ? @"outside the allowed range" : @"not a plain number", (double)result];
+    }
+    return result;
+}
+
+// Diagnostics and safe-mode settings (no prefs UI yet; set with `defaults write`). Read by the %ctor before preferencesChanged()
+// (OITIPrepareEarlyPreferences) so the loop guard can run first, and again by every preferencesChanged().
+static void OITIApplyDiagnosticsAndGuardSettings(void) {
+    sLog.enabled = [sOITIPreferences boolForKey:@"DiagnosticsEnabled" default:YES];
+    sLog.level = MAX(0, MIN(2, [sOITIPreferences integerForKey:@"DiagnosticsLevel" default:0]));
+    sGuardEnabled = [sOITIPreferences boolForKey:@"SafeModeGuardEnabled" default:YES];
+    sGuardMaxLaunches = MAX(2, [sOITIPreferences integerForKey:@"SafeModeMaxLaunches" default:5]);
+    sGuardWindowSeconds = MAX(10, [sOITIPreferences integerForKey:@"SafeModeWindowSeconds" default:120]);
+    sGuardStableSeconds = MAX(5, [sOITIPreferences integerForKey:@"SafeModeStableSeconds" default:45]);
+    sGuardRestoreGestalt = [sOITIPreferences boolForKey:@"SafeModeRestoreGestalt" default:NO];
+}
+
+// The only preferences read before the loop guard has run: the preferences object, the log settings and the guard settings.
+void OITIPrepareEarlyPreferences(void) {
+    if (!sOITIPreferences) sOITIPreferences = [OITPreferences preferencesWithDomain:kOITIPrefsDomain];
+    OITIApplyDiagnosticsAndGuardSettings();
+}
+
+// What a launch in safe mode (hooks not installed) loads instead of preferencesChanged(): the log and guard settings and
+// islandEnabled (the startup self-check and the dumps report it). Safe mode exists to keep a failing code path from running
+// again, so the full preference reload is not run there; the other settings keep their defaults and do nothing anyway.
+void OITIApplySafeModePreferences(void) {
+    if (!sOITIPreferences) sOITIPreferences = [OITPreferences preferencesWithDomain:kOITIPrefsDomain];
+    else [sOITIPreferences reload];
+    islandEnabled = [sOITIPreferences boolForKey:@"islandEnabled" default:NO];
+    OITIApplyDiagnosticsAndGuardSettings();
+}
 
 void preferencesChanged(void) {
     BOOL islandNotificationsWereEnabled = islandNotificationsEnabled;
@@ -39,6 +87,8 @@ void preferencesChanged(void) {
     islandNotificationsEnabled = [sOITIPreferences boolForKey:@"islandNotificationsEnabled" default:NO];
     islandNotificationsHideBanner = [sOITIPreferences boolForKey:@"islandNotificationsHideBanner" default:NO];
     sIslandNotificationStackEnabled = [sOITIPreferences boolForKey:@"islandNotificationStackEnabled" default:YES];
+    sNotificationHapticEnabled = [sOITIPreferences boolForKey:@"NotificationHaptic" default:NO];
+    sIslandNotificationTapDismisses = [sOITIPreferences boolForKey:@"NotificationTapDismisses" default:NO];
     islandStartupHelloEnabled = [sOITIPreferences boolForKey:@"IslandStartupHelloEnabled" default:NO];
     BOOL downloadProgressWasEnabled = sDownloadProgressEnabled;
     sDownloadProgressEnabled = [sOITIPreferences boolForKey:@"DownloadProgressEnabled" default:NO];
@@ -48,6 +98,8 @@ void preferencesChanged(void) {
     sDownloadIdleAfterMB = isfinite(downloadIdleMB) ? MAX(0.0, MIN(5000.0, downloadIdleMB)) : 0.0;
     CGFloat downloadIdleSeconds = [sOITIPreferences floatForKey:@"DownloadIdleAfterSeconds" default:0.0];
     sDownloadIdleAfterSeconds = isfinite(downloadIdleSeconds) ? MAX(0.0, MIN(900.0, downloadIdleSeconds)) : 0.0;
+    CGFloat downloadIdlePercent = [sOITIPreferences floatForKey:@"DownloadIdleAfterPercent" default:0.0];
+    sDownloadIdleAfterPercent = isfinite(downloadIdlePercent) ? MAX(0.0, MIN(99.0, downloadIdlePercent)) : 0.0;   // 99 at most: 100% is the completion state
     NSInteger downloadPreviousStyle = sDownloadStyle;
     sDownloadStyle = (NSInteger)lround([sOITIPreferences floatForKey:@"DownloadProgressStyle" default:0.0]) == 1 ? 1 : 0;
     CGFloat pillWidth = [sOITIPreferences floatForKey:@"DownloadPillWidth" default:296.0];
@@ -75,6 +127,8 @@ void preferencesChanged(void) {
         lineDisabled = NO;
         islandNotificationsEnabled = NO;
         islandNotificationsHideBanner = NO;
+        sNotificationHapticEnabled = NO;   // a customization of the stock notification experience, so it is off too
+        sIslandNotificationTapDismisses = NO;   // it only acts on Island notices, which Apple Mode removes; off for consistency
         islandStartupHelloEnabled = NO;
         sDownloadProgressEnabled = NO;
         sDownloadAppStoreEnabled = NO;
@@ -127,10 +181,10 @@ void preferencesChanged(void) {
     }
 
     // Defaults match the globals above (and the prefs UI).
-    xPos = [sOITIPreferences floatForKey:@"xPos" default:0.0];
-    yPos = [sOITIPreferences floatForKey:@"yPos" default:20.5];
-    xNot = [sOITIPreferences floatForKey:@"xNot" default:0.0];
-    yNot = [sOITIPreferences floatForKey:@"yNot" default:40.0];
+    xPos = OITIReadPositionPreference(@"xPos", 0.0);
+    yPos = OITIReadPositionPreference(@"yPos", 20.5);
+    xNot = OITIReadPositionPreference(@"xNot", 0.0);
+    yNot = OITIReadPositionPreference(@"yNot", 40.0);
     red = [sOITIPreferences floatForKey:@"red" default:0.0];
     green = [sOITIPreferences floatForKey:@"green" default:0.0];
     blue = [sOITIPreferences floatForKey:@"blue" default:0.0];
@@ -146,14 +200,7 @@ void preferencesChanged(void) {
         sMetricsSensorY = 1.0;
     }
 
-    // Diagnostics and safe-mode settings (no prefs UI yet; set with `defaults write`).
-    sLog.enabled = [sOITIPreferences boolForKey:@"DiagnosticsEnabled" default:YES];
-    sLog.level = MAX(0, MIN(2, [sOITIPreferences integerForKey:@"DiagnosticsLevel" default:0]));
-    sGuardEnabled = [sOITIPreferences boolForKey:@"SafeModeGuardEnabled" default:YES];
-    sGuardMaxLaunches = MAX(2, [sOITIPreferences integerForKey:@"SafeModeMaxLaunches" default:5]);
-    sGuardWindowSeconds = MAX(10, [sOITIPreferences integerForKey:@"SafeModeWindowSeconds" default:120]);
-    sGuardStableSeconds = MAX(5, [sOITIPreferences integerForKey:@"SafeModeStableSeconds" default:45]);
-    sGuardRestoreGestalt = [sOITIPreferences boolForKey:@"SafeModeRestoreGestalt" default:NO];
+    OITIApplyDiagnosticsAndGuardSettings();
 
     NSDictionary<NSString *, NSNumber *> *snapshot = OITIPrefSnapshot();
     if (!sLastPrefSnapshot) {

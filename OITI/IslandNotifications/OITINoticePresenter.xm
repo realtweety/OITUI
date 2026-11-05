@@ -66,7 +66,7 @@ void OITIRemoveNoticeItem(NSDictionary *item, NSString *reason) {
     [sIslandNoticeItems removeObjectAtIndex:index];
     if (item == sStartupHelloItem) sStartupHelloItem = nil;
     if (item == sDownloadItem) OITIDownloadItemRemoved(item, reason);
-    OITIRefreshNewestNoticeComposite();
+    OITIStackCardsRefresh();   // the older notices are cards of their own (OITINoticeStackCards.xm): redraw them for the new stack
     [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK removed %@ reason=%@ remaining=%lu",
      OITIKVCObject(item[@"element"], @"elementIdentifier"), reason, (unsigned long)sIslandNoticeItems.count];
     if (sIslandNoticeItems.count == 0) {
@@ -166,7 +166,7 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
     @synchronized ([NSNull null]) { [sTraceSeen removeAllObjects]; }
     if (OITIElementRecoveryActive(reason)) return NO;
     if (sPoCDisabledAfterFailure) {
-        [sLog logTag:@"ELEMENT" format:@"element creation is off until the next respring (the promotion guard caught %d exceptions)", sPoCFailureCount];
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"element creation is off until the next respring (the promotion guard caught %d exceptions)", sPoCFailureCount];   // per attempt: level 1; the switch-off itself is logged once at level 0 by the guard
         return NO;
     }
     id manager = sRegisteringManager ?: sSeenManager;
@@ -193,8 +193,13 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
     NSInteger style = (startupHello || downloadProgress) ? 2 : OITINoticeStyle();
     if (!sIslandNotificationStackEnabled && sIslandNoticeItems.count) {
         NSArray<NSDictionary *> *previousItems = [sIslandNoticeItems copy];
-        for (NSDictionary *previous in previousItems) OITIRemoveNoticeItem(previous, @"stack-disabled-replaced");
-        [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK disabled; replacing prior items with newest notification"];
+        for (NSDictionary *previous in previousItems) {
+            // A running Detailed download is not a notification: it stays (v0.3.0 polish, A8). It used to be removed here and
+            // then stayed away for the rest of that download.
+            if (!downloadProgress && previous[@"download"]) continue;
+            OITIRemoveNoticeItem(previous, @"stack-disabled-replaced");
+        }
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK disabled; replacing prior notifications with the newest one"];
     }
     if (sIslandNoticeItems.count && style != 0) {
         // The previous alert now enters the compact stack; its visible time starts again here.
@@ -257,21 +262,24 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
         OITIProbeObject(leadingProvider, @"leadingProvider");
         OITIProbeObject(element, @"element");
 
-        [sLog logTag:@"ELEMENT" format:@"our element before layout values: %@", OITIElementValuesSummary(element)];
-        [sLog logTag:@"ELEMENT" format:@"our element parts: %@", OITIElementPartsSummary(element)];
+        // Level 1 and lazy: the summaries are only built when the line is written (they were always built before).
+        OITLOGGER_LOG(sLog, 1, @"ELEMENT", @"our element before layout values: %@", OITIElementValuesSummary(element));
+        OITLOGGER_LOG(sLog, 1, @"ELEMENT", @"our element parts: %@", OITIElementPartsSummary(element));
         item = [NSMutableDictionary dictionary];
         item[@"leadingView"] = leadingView; item[@"trailingView"] = trailingView; item[@"leadingProvider"] = leadingProvider;
         item[@"primaryView"] = primaryView; item[@"secondaryView"] = secondaryView;
         item[@"secondaryStack"] = secondaryView; item[@"secondaryBody"] = secondaryBody; item[@"info"] = [info copy];
         item[@"primaryProvider"] = primaryProvider; item[@"secondaryProvider"] = secondaryProvider;
         item[@"trailingProvider"] = trailingProvider; item[@"provider"] = provider; item[@"element"] = element; item[@"manager"] = registrar;
+        item[@"postedAt"] = @(CFAbsoluteTimeGetCurrent());   // for the "how long ago" of a stack card
         if (sPendingNoticeRequest) item[@"request"] = sPendingNoticeRequest;
         if (startupHello) {
             item[@"startupHello"] = @YES;
             if (startupVideoView) {
                 item[@"startupVideoView"] = startupVideoView;
                 NSTimeInterval duration = startupVideoView.mediaDuration;
-                item[@"timeoutDuration"] = @(duration > 0 ? MIN(duration + 2.0, 120.0) : 60.0);
+                // clip + the last-frame hold + the same 2 s margin as before; the element's alert timer answers this value too
+                item[@"timeoutDuration"] = @(duration > 0 ? MIN(duration + kOITIStartupHelloEndHold + 2.0, 120.0) : 60.0);
             } else {
                 item[@"timeoutDuration"] = @(kOITIStartupHelloPrototypeDuration);
             }
@@ -285,9 +293,21 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
             sDownloadShownAt = CFAbsoluteTimeGetCurrent();
         }
         OITISetNoticeLayout(item, style, YES);
-        NSUInteger stackLimit = sIslandNotificationStackEnabled ? kOITINoticeStackLimit : 1;
+        // A notice or the Hello never pushes a running Detailed download out of the stack (v0.3.0 polish, A8): the oldest item
+        // that is not the download is evicted instead, and with stacking off the download is the one extra item kept next to
+        // the single newest notice. The download itself still replaces whatever is there, as before.
+        BOOL sparingDownload = !downloadProgress;
+        BOOL downloadKept = NO;
+        for (NSDictionary *existing in sIslandNoticeItems) if (existing[@"download"]) downloadKept = YES;
+        NSUInteger stackLimit = sIslandNotificationStackEnabled ? kOITINoticeStackLimit : ((sparingDownload && downloadKept) ? 2 : 1);
         while (sIslandNoticeItems.count >= stackLimit) {
-            NSDictionary *oldest = sIslandNoticeItems.firstObject;
+            NSDictionary *oldest = nil;
+            for (NSDictionary *candidate in sIslandNoticeItems) {
+                if (sparingDownload && candidate[@"download"]) continue;
+                oldest = candidate;
+                break;
+            }
+            if (!oldest) break;   // only the download is left: nothing may be evicted
             [sLog logLevel:1 tag:@"ELEMENT" format:@"STACK full (%lu); evicting oldest %@",
              (unsigned long)kOITINoticeStackLimit, OITIKVCObject(oldest[@"element"], @"elementIdentifier")];
             OITIRemoveNoticeItem(oldest, @"capacity");
@@ -296,15 +316,15 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
         if (sIslandNoticeItems.count == 1) OITIWriteElementBreadcrumb(reason);   // also before registering: registration is the risky call
         if (startupHello) sStartupHelloItem = item;
         OITIScheduleNoticeTimeout(item);
-        OITIRefreshNewestNoticeComposite();
+        OITIStackCardsRefresh();
 
         sPoCOurRegistrationInFlight = YES;
         id registration = [(SAUISystemApertureManager *)registrar registerElement:element];
         sPoCOurRegistrationInFlight = NO;
         if (registration) item[@"registration"] = registration;
         OITIProbeObject(registration, @"registration");
-        [sLog logTag:@"ELEMENT" format:@"registered %@ (%@) registrar=%@ registration=%@ duration=%.1fs", identifier, reason,
-         OITIObjectSummary(registrar), OITIObjectSummary(registration), (double)sIslandNoticeDuration];
+        OITLOGGER_LOG(sLog, 1, @"ELEMENT", @"registered %@ (%@) registrar=%@ registration=%@ duration=%.1fs", identifier, reason,
+                      OITIObjectSummary(registrar), OITIObjectSummary(registration), (double)sIslandNoticeDuration);
 
         if (startupVideoView) {
             __weak NSMutableDictionary *weakItem = item;
@@ -319,9 +339,21 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
                         NSMutableDictionary *strongItem = weakItem;
                         if (!strongItem || ![sIslandNoticeItems containsObject:strongItem]) return;
                         BOOL failed = [notification.name isEqualToString:AVPlayerItemFailedToPlayToEndTimeNotification];
-                        [sLog logLevel:1 tag:@"HELLO" format:@"video %@; removing startup element %@",
-                         failed ? @"playback failed" : @"reached end", failed ? notification.userInfo : @""];
-                        OITIRemoveNoticeItem(strongItem, failed ? @"video-failed" : @"video-finished");
+                        if (failed) {
+                            [sLog logLevel:1 tag:@"HELLO" format:@"video playback failed; removing startup element %@", notification.userInfo];
+                            OITIRemoveNoticeItem(strongItem, @"video-failed");
+                            return;
+                        }
+                        // The last frame (black) stays on screen for kOITIStartupHelloEndHold before the element goes. If something else
+                        // removes the item first (an interruption, a swipe, the timeout), the block below finds nothing to remove.
+                        [sLog logLevel:1 tag:@"HELLO" format:@"video reached end; holding the last frame %.2f s before removing the startup element",
+                         (double)kOITIStartupHelloEndHold];
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kOITIStartupHelloEndHold * NSEC_PER_SEC)),
+                                       dispatch_get_main_queue(), ^{
+                            NSMutableDictionary *heldItem = weakItem;
+                            if (!heldItem || ![sIslandNoticeItems containsObject:heldItem]) return;
+                            OITIRemoveNoticeItem(heldItem, @"video-finished");
+                        });
                     }];
                 if (observer) [observers addObject:observer];
             }
@@ -364,6 +396,19 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
             actions.bundleID = noticeBundleID;
             actions.request = item[@"request"];
             actions.host = host;
+            if (item[@"startupHello"]) {
+                // A tap on the Hello opens Insula's page in Settings and removes the animation (it would otherwise keep
+                // playing behind the Settings launch). Removed on the next run loop pass, not inside the recognizer callback.
+                actions.tapAction = ^{
+                    OITIOpenInsulaSettings();
+                    dispatch_async(dispatch_get_main_queue(), ^{ OITIRemoveNoticeItem(item, @"tap"); });
+                };
+            }
+            if (!item[@"startupHello"] && !item[@"download"]) {
+                actions.tapDismiss = ^{
+                    OITIRemoveNoticeItem(item, @"tap");
+                };
+            }
             actions.dismiss = ^{
                 OITIRemoveNoticeItem(item, @"swipe");
             };
@@ -452,7 +497,7 @@ static void OITIPlayNotificationHaptic(void) {
 
 // A banner request arrived. Always safe: log-only unless the feature is on.
 void OITIHandleBannerRequest(id destination, id request) {
-    if ([sOITIPreferences boolForKey:@"NotificationHaptic" default:NO]) OITIPlayNotificationHaptic();
+    if (sNotificationHapticEnabled) OITIPlayNotificationHaptic();   // off under Apple Mode (forced in preferencesChanged)
     if (sStartupHelloObservationWindowOpen && islandStartupHelloEnabled) sStartupHelloActivitySeen = YES;
     if (sStartupHelloItem) {
         dispatch_async(dispatch_get_main_queue(), ^{

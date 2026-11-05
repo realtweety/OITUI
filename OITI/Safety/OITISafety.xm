@@ -47,21 +47,30 @@ static void OITIRunRestoreHelper(void) {
     });
 }
 
-// Returns YES when OITI must stay in safe mode (hooks not installed) for this launch.
-BOOL OITIEvaluateLoopGuard(void) {
-    if (!sGuardEnabled) {
-        [sLog logTag:@"GUARD" format:@"disabled by SafeModeGuardEnabled"];
-        return NO;
-    }
+// ---- The respring-loop guard, in two steps (v0.3.0 polish, batch 2) --------------------------------------------------------
+//
+// Step 1, OITIGuardBeginLaunch(), runs first thing in the %ctor, right after the log and the guard settings are available and
+// BEFORE preferencesChanged() or anything else that could fail. It only records this launch. Before batch 2 the launch was
+// recorded in the single evaluation function, which ran after preferencesChanged(): a SpringBoard that died inside
+// preferencesChanged() (the v0.3.0 batch 1 bootloop) left no trace, so safe mode could never trip.
+//
+// Step 2, OITIEvaluateLoopGuard(), counts the launches inside the window and decides. It also runs before preferencesChanged(),
+// so when it trips, the %ctor skips preferencesChanged() and installs no hooks: a crash in that code path cannot repeat.
+//
+// What did not change: the thresholds and settings, what counts as a launch (a respring asked for from OITI's settings does not,
+// and a tripped safe mode is left alone until it is cleared), the state files, the stable-launch timer and every log line.
+static NSArray<NSNumber *> *sGuardLaunches;       // launches inside the window including this one (set by Step 1)
+static NSTimeInterval sGuardLaunchTime;
+static BOOL sGuardLaunchCounted;                  // NO for a requested respring, or when Step 1 did not record
 
+void OITIGuardBeginLaunch(void) {
+    sGuardLaunches = nil;
+    sGuardLaunchCounted = NO;
+    if (!sGuardEnabled) return;
     NSDictionary *flag = [NSDictionary dictionaryWithContentsOfFile:kOITISafeModePath];
-    if ([flag[@"tripped"] boolValue]) {
-        [sLog logTag:@"SAFE" format:@"safe mode still active (tripped at %@, reason: %@). Clear with: rm %@",
-         flag[@"time"], flag[@"reason"], kOITISafeModePath];
-        return YES;
-    }
-
+    if ([flag[@"tripped"] boolValue]) return;   // safe mode stays on: the history and any respring marker are left as they are
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    sGuardLaunchTime = now;
 
     // A respring requested from OITI's settings pages is not a crash. The marker is consumed either way (a stale
     // one is deleted and ignored), and a fresh one means the previous SpringBoard was healthy enough to be asked
@@ -76,7 +85,7 @@ BOOL OITIEvaluateLoopGuard(void) {
             sLaunchWasRequestedRespring = YES;
             [sLog logTag:@"GUARD" format:@"respring requested from OITI settings %.0f s ago: launch not counted, history cleared",
              intentAge];
-            return NO;
+            return;
         }
         [sLog logTag:@"GUARD" format:@"ignored a stale respring marker (age %.0f s)", intentAge];
     }
@@ -94,14 +103,30 @@ BOOL OITIEvaluateLoopGuard(void) {
     [launches addObject:@(now)];
     while (launches.count > 16) [launches removeObjectAtIndex:0];
     [@{ @"launches": launches } writeToFile:kOITIBootLogPath atomically:YES];
+    sGuardLaunches = launches;
+    sGuardLaunchCounted = YES;
+}
 
+// Returns YES when OITI must stay in safe mode (hooks not installed) for this launch. Call OITIGuardBeginLaunch() first.
+BOOL OITIEvaluateLoopGuard(void) {
+    if (!sGuardEnabled) {
+        [sLog logTag:@"GUARD" format:@"disabled by SafeModeGuardEnabled"];
+        return NO;
+    }
+    NSDictionary *flag = [NSDictionary dictionaryWithContentsOfFile:kOITISafeModePath];
+    if ([flag[@"tripped"] boolValue]) {
+        [sLog logTag:@"SAFE" format:@"safe mode still active (tripped at %@, reason: %@). Clear with: rm %@",
+         flag[@"time"], flag[@"reason"], kOITISafeModePath];
+        return YES;
+    }
+    if (!sGuardLaunchCounted) return NO;   // a respring asked for in OITI's settings (logged by Step 1)
+    NSArray<NSNumber *> *launches = sGuardLaunches ?: @[];
     [sLog logTag:@"GUARD" format:@"SpringBoard launches in the last %ld s: %lu (trip at %ld)",
      (long)sGuardWindowSeconds, (unsigned long)launches.count, (long)sGuardMaxLaunches];
-
     if ((NSInteger)launches.count >= sGuardMaxLaunches) {
         NSString *reason = [NSString stringWithFormat:@"%lu SpringBoard launches within %ld s",
                             (unsigned long)launches.count, (long)sGuardWindowSeconds];
-        [@{ @"tripped": @YES, @"time": @(now), @"reason": reason, @"build": kOITIBuildTag }
+        [@{ @"tripped": @YES, @"time": @(sGuardLaunchTime), @"reason": reason, @"build": kOITIBuildTag }
             writeToFile:kOITISafeModePath atomically:YES];
         [sLog logTag:@"SAFE" format:@"TRIPPED: %@. OITI hooks will not be installed. Clear with: rm %@",
          reason, kOITISafeModePath];
@@ -113,7 +138,6 @@ BOOL OITIEvaluateLoopGuard(void) {
         }
         return YES;
     }
-
     // A launch that stays up long enough is not part of a loop: forget the history.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)sGuardStableSeconds * (int64_t)NSEC_PER_SEC),
                    dispatch_get_main_queue(), ^{
@@ -123,6 +147,21 @@ BOOL OITIEvaluateLoopGuard(void) {
     return NO;
 }
 
+// ---- "Island elements are off" flag (v0.3.0 polish, batch 2) ----------------------------------------------------------------
+// When the promotion guard has caught five exceptions it switches element creation off until the next respring
+// (sPoCDisabledAfterFailure). That used to be visible only in the log. The tweak now also writes this small file so the Settings
+// pages can say so; the next SpringBoard launch deletes it, because a launch turns element creation back on.
+NSString * const kOITIElementsOffPath = @"/var/mobile/Library/Preferences/OITIElementsOff.plist";
+
+void OITIMarkElementsOff(int failures, NSString *reason) {
+    NSDictionary *flag = @{ @"time": @([[NSDate date] timeIntervalSince1970]), @"failures": @(failures),
+                            @"reason": reason ?: @"", @"build": kOITIBuildTag };
+    [flag writeToFile:kOITIElementsOffPath atomically:YES];
+}
+
+void OITIClearElementsOffFlag(void) {
+    [[NSFileManager defaultManager] removeItemAtPath:kOITIElementsOffPath error:nil];
+}
 
 // 2556 is the spoofed value. iOS 16 only ever runs on one model that natively reports it (iPhone 14 Pro).
 // Keep in sync with OITIMachineHasNativeIsland in OITIRootListController.m.

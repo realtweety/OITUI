@@ -88,7 +88,7 @@ void OITICaptureRealElement(id element) {
     NSNumber *maximum = OITIKVCNumber(element, @"maximumSupportedLayoutMode");
     if (preferred && minimum && maximum) {
         sRealLayoutValues = @{ @"preferred": preferred, @"minimum": minimum, @"maximum": maximum };
-        [sLog logTag:@"ELEMENT" format:@"remembered real layout values preferred=%@ min=%@ max=%@ from %@", preferred, minimum, maximum,
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"remembered real layout values preferred=%@ min=%@ max=%@ from %@", preferred, minimum, maximum,
          NSStringFromClass([element class])];
     }
 }
@@ -140,7 +140,7 @@ BOOL OITIElementRecoveryActive(NSString *reason) {
         [sLog logTag:@"ELEMENT" format:@"RECOVERY window is over: Island elements are allowed again"];
         return NO;
     }
-    [sLog logTag:@"ELEMENT" format:@"RECOVERY: %@ is not shown as an Island element (%.0f s left); the stock banner is used", reason, left];
+    [sLog logLevel:1 tag:@"ELEMENT" format:@"RECOVERY: %@ is not shown as an Island element (%.0f s left); the stock banner is used", reason, left];   // once per attempt: level 1; the lines that start and end the window stay at level 0
     return YES;
 }
 

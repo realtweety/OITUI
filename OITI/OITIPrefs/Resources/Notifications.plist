@@ -8,31 +8,9 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
-        <string>Experimental Notification Stack</string>
-        <key>footerText</key>
-        <string>Early feature: it is usable, but not polished. Multiple notifications can overlap, change size or disappear unexpectedly, and the layout may look different across devices. Turn this off to show only one Island notification at a time. Island Notifications must also be enabled.</string>
-      </dict>
-      <dict>
-        <key>cell</key>
-        <string>PSSwitchCell</string>
-        <key>default</key>
-        <true/>
-        <key>defaults</key>
-        <string>com.wilburt.oiti.prefs</string>
-        <key>key</key>
-        <string>islandNotificationStackEnabled</string>
-        <key>label</key>
-        <string>Stack Multiple Notifications (Experimental)</string>
-        <key>PostNotification</key>
-        <string>com.wilburt.oiti/PrefsChanged</string>
-      </dict>
-      <dict>
-        <key>cell</key>
-        <string>PSGroupCell</string>
-        <key>label</key>
         <string>Island Notifications</string>
         <key>footerText</key>
-        <string>Shows incoming notifications in the Dynamic Island. Disable this to stop using Island notifications. Requires the Island to be enabled.</string>
+        <string>Shows incoming notifications in the Dynamic Island. Requires the Island to be enabled. Turning it on applies from the next notification; turning it off clears any notice on screen. Turned off by Apple Mode.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -59,6 +37,28 @@
         <string>islandNotificationsHideBanner</string>
         <key>label</key>
         <string>Hide the Stock Banner</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Experimental Notification Stack</string>
+        <key>footerText</key>
+        <string>Shows up to four notifications at once: the newest in the Island, in the Style you chose below, and the older ones as small cards of their own below the Island. A tap on a card opens that notification and a swipe up on it dismisses it. Early feature: it is usable, but not polished, and the layout may look different across devices. Turn the stack off to show only one Island notification at a time; that applies immediately and clears all but the newest notice. Island Notifications must also be enabled, and Apple Mode turns Island Notifications off, so there is no stack then.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <true/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>islandNotificationStackEnabled</string>
+        <key>label</key>
+        <string>Stack Multiple Notifications (Experimental)</string>
         <key>PostNotification</key>
         <string>com.wilburt.oiti/PrefsChanged</string>
       </dict>
@@ -102,9 +102,31 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
+        <string>Tapping a Notification</string>
+        <key>footerText</key>
+        <string>A tap always opens what the notification opens. By default the notice then stays in the Island until its timeout or a swipe up. Turn this on to remove the notice right after the tap. Applies immediately, also to a notice already on screen. Does not affect the Hello animation or download progress. Turned off by Apple Mode.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>NotificationTapDismisses</string>
+        <key>label</key>
+        <string>Dismiss When Tapped</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
         <string>Haptics</string>
         <key>footerText</key>
-        <string>A short, light tap when a notification banner arrives. Works with or without Island Notifications. Follows the system's Haptics setting. Not played for notifications that go straight to the lock screen.</string>
+        <string>A short, light tap when a notification banner arrives. Works with or without Island Notifications. Follows the system's Haptics setting. Not played for notifications that go straight to the lock screen, and not played in Apple Mode. Applies from the next notification.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -126,7 +148,7 @@
         <key>label</key>
         <string>Island Notification Duration</string>
         <key>footerText</key>
-        <string>How many seconds each notification stays in the Island. Tap it to open the app, swipe up to dismiss.</string>
+        <string>How many seconds each notification stays in the Island. Tap it to open the app, swipe up to dismiss. Applies from the next notification.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -152,7 +174,7 @@
         <key>label</key>
         <string>Island Notification Message Lines</string>
         <key>footerText</key>
-        <string>How many lines of the message are shown before it is cut off with an ellipsis. The Island grows to fit.</string>
+        <string>How many lines of the message are shown before it is cut off with an ellipsis. The Island grows to fit. Applies from the next notification.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -178,7 +200,7 @@
         <key>label</key>
         <string>Island Notification Roundness</string>
         <key>footerText</key>
-        <string>Adds to the Island's corner radius while a notification is showing. 0 is Apple's shape.</string>
+        <string>Adds to the Island's corner radius while a notification is showing. 0 is Apple's shape. Applies from the next notification.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -202,7 +224,7 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>footerText</key>
-        <string>Moves all incoming notification banners to below the Dynamic Island for better visibility.</string>
+        <string>Moves all incoming notification banners to below the Dynamic Island for better visibility, using the built-in banner position for your device. If your device has none yet this has no effect: use custom positioning below instead. Applies immediately to a banner on screen; switching it off only takes effect for the next banner. Takes priority over custom positioning.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -224,7 +246,7 @@
         <key>label</key>
         <string>Custom Notification Positioning</string>
         <key>footerText</key>
-        <string>Use custom positioning if you use a custom island position.</string>
+        <string>Moves incoming banners to the X and Y you enter, in points, at most one screen either way. The defaults are 0 and 40. Values are saved when you leave a field or tap Save. A banner already on screen moves immediately; switching it off only takes effect for the next banner. Turned off by Apple Mode.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -282,7 +304,7 @@
       </dict>
       <dict>
         <key>action</key>
-        <string>savePos</string>
+        <string>savePos:</string>
         <key>cell</key>
         <string>PSButtonCell</string>
         <key>label</key>

@@ -39,7 +39,10 @@ static BOOL OITIIsNewestNoticeElement(id element) {
 }
 
 static BOOL OITIIsAlertNoticeElement(id element) {
-    if (OITIItemForElement(element)[@"download"]) return OITIIsNewestNoticeElement(element);   // wide or expanded, whatever the notification style is
+    // Wide or expanded, whatever the notification style is. The Hello counts too: the presenter always builds it expanded (style 2), so with the
+    // notification style on Compact it used to be an activity with an expanded layout (v0.3.0 polish; unverified on the device at Compact).
+    NSDictionary *item = OITIItemForElement(element);
+    if (item[@"download"] || item[@"startupHello"]) return OITIIsNewestNoticeElement(element);
     return OITINoticeStyle() != 0 && OITIIsNewestNoticeElement(element);
 }
 
@@ -51,7 +54,7 @@ NSInteger OITINoticeStyle(void) {
 void OITISetNoticeLayout(NSDictionary *item, NSInteger style, BOOL isNewest) {
     id element = item[@"element"];
     if (!element) return;
-    if (item[@"download"]) style = 2;   // the Detailed download look is the expanded layout, whatever the notification style is
+    if (item[@"download"] || item[@"startupHello"]) style = 2;   // the Detailed download look and the Hello are the expanded layout, whatever the notification style is
 
     BOOL compact = (style == 0) || !isNewest;
     NSInteger layoutVariant = compact ? 1 : (style == 1 ? 6 : 5);
@@ -120,7 +123,13 @@ Class OITINoticeElementClass(void) {
                         imp_implementationWithBlock(^double(id receiver, double suggested) {
                             // Apple ends an alert after this long without telling OITI. That suits a notice, which OITI
                             // removes after the same time, but a download lasts as long as the download does.
-                            if (OITIItemForElement(receiver)[@"download"]) return kOITIDownloadAlertDuration;
+                            NSDictionary *item = OITIItemForElement(receiver);
+                            if (item[@"download"]) return kOITIDownloadAlertDuration;
+                            // The Hello is a clip, not a notice: the notice duration (2 to 10 s) must not end it early. Its own
+                            // timeout (clip + hold + margin) is the longest it may live, and the video end removes it before that.
+                            if (item[@"startupHello"] && [item[@"timeoutDuration"] respondsToSelector:@selector(doubleValue)]) {
+                                return [item[@"timeoutDuration"] doubleValue];
+                            }
                             return (double)sIslandNoticeDuration;
                         }),
                         "d24@0:8d16");

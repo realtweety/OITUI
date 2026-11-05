@@ -26,9 +26,17 @@
 @property (nonatomic, weak) UIView *host;
 @property (nonatomic, assign) BOOL handled;
 @property (nonatomic, copy) void (^dismiss)(void);
+@property (nonatomic, copy) void (^tapAction)(void);    // when set, a tap runs this instead of the notification tap path (the Hello opens Insula's settings)
+@property (nonatomic, copy) void (^tapDismiss)(void);   // set for a notification notice only (nil for the Hello and a download); used when sIslandNotificationTapDismisses is on
 - (void)handleTap:(UIGestureRecognizer *)recognizer;
 - (void)handleSwipe:(UIGestureRecognizer *)recognizer;
 @end
+
+// OITINoticeStackCards.xm
+void OITIStackCardsRefresh(void);   // rebuild or remove the cards of the older notices (the stack below the newest notice)
+
+// OITINoticeActions.xm
+void OITIOpenInsulaSettings(void);   // the Hello's tap: Insula's page in Settings (prefs:root=Insula)
 
 // OITINoticePresenter.xm
 static const double kOITIDownloadAlertDuration = 86400.0;
@@ -79,7 +87,6 @@ Class OITINoticeElementClass(void);
 NSString *OITIShortText(NSString *text, NSUInteger limit);
 NSDictionary<NSString *, NSString *> *OITINoticeInfoFromRequest(id request);
 void OITIBuildNoticeViews(NSDictionary<NSString *, NSString *> *info, UIView **leadingOut, UIView **trailingOut, UIView **primaryOut, UIView **secondaryOut, UILabel **secondaryBodyOut);
-void OITIRefreshNewestNoticeComposite(void);
 NSString *OITICornerChain(UIView *view);
 void OITIApplyCornerExtra(UIView *view, CGFloat extra);
 void OITIRestoreCorners(void);

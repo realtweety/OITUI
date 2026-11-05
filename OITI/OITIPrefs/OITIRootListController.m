@@ -4,7 +4,7 @@
 #import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
 
-static NSString * const kOITIPrefsBuildTag = @"OITIPrefs-step2-2026-10-08-b";
+static NSString * const kOITIPrefsBuildTag = @"OITIPrefs-0.3.0-2026-11-03-d";
 static NSString * const kOITIPrefsLogPath = @"/tmp/OITIPrefsDebug.log";
 
 static NSString * const kOITIGestaltPlistPath = @"/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/com.apple.MobileGestalt.plist";
@@ -212,32 +212,6 @@ static BOOL OITIMachineHasNativeIsland(NSString *machine) {
     [self oiti_writeBackupBreadcrumb];
 }
 
-+ (void)showFixNoticeWithTitle:(NSString *)title message:(NSString *)message {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
-                                                                   message:message
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-
-    UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"OK"
-                                                       style:UIAlertActionStyleDefault
-                                                     handler:^(UIAlertAction *action) {
-                                                     }];
-
-    [alert addAction:okAction];
-
-    UIWindow *keyWindow = nil;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if (window.isKeyWindow) {
-                keyWindow = window;
-                break;
-            }
-        }
-        if (keyWindow) break;
-    }
-    [keyWindow.rootViewController presentViewController:alert animated:YES completion:nil];
-}
-
 - (void)sourceCode {
     NSURL *url = [NSURL URLWithString:@"https://github.com/ethxnn88/visibleisland"];
     if ([[UIApplication sharedApplication] canOpenURL:url]) {
@@ -285,19 +259,7 @@ static BOOL OITIMachineHasNativeIsland(NSString *machine) {
             [OITIRootListController restoreOriginalHardwareIdentity];
         }
     } else if ([[specifier propertyForKey:@"key"] isEqualToString:@"fixEnabled"]) {
-        BOOL switchValue = [value boolValue];
-        if (switchValue) {
-            // One shared table (OITIDeviceProfiles.h) decides what "supported" means, so this can never
-            // disagree with the offsets the tweak actually uses.
-            const OITIDeviceProfile *profile = OITIProfileForModel([OITDeviceInfo machineIdentifier]);
-            if (!profile) {
-                [OITIRootListController showFixNoticeWithTitle:@"No built-in offsets"
-                                                       message:@"Insula has no built-in offsets for this device, so this option will have no effect. Turn it off and use the custom position and banner offsets instead."];
-            } else if (!profile->verified) {
-                [OITIRootListController showFixNoticeWithTitle:@"Estimated offsets"
-                                                       message:@"The built-in offsets for this device are estimates and may not be pixel-perfect. If something looks off, turn this option off and use custom offsets."];
-            }
-        }
+        if ([value boolValue]) [OITIBaseListController oitiCheckDeviceFixSupportForKey:@"fixEnabled"];
     }
 }
 @end

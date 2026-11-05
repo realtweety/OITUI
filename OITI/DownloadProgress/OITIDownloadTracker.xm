@@ -7,6 +7,7 @@
 
 #import "Shared/OITIShared.h"
 #import "DownloadProgress/OITIDownloadProgress.h"
+#import "IslandNotifications/OITIIslandNotifications.h"
 
 // The download settings (DownloadProgressEnabled and the keys below), written by the preferences reload (Shared/OITIPreferences.xm).
 BOOL sDownloadProgressEnabled;          // DownloadProgressEnabled (default NO)
@@ -14,6 +15,7 @@ BOOL sDownloadAppStoreEnabled;          // DownloadAppStoreEnabled (default NO):
 BOOL sDownloadTestFractionOnly;         // DownloadTestFractionOnly (default NO, defaults write only): the test download reports a percentage only
 CGFloat sDownloadIdleAfterMB = 0;       // DownloadIdleAfterMB: return the Island to idle after this many MB downloaded, 0 = never
 CGFloat sDownloadIdleAfterSeconds = 0;  // DownloadIdleAfterSeconds: the same after this long on screen, 0 = never
+CGFloat sDownloadIdleAfterPercent = 0;  // DownloadIdleAfterPercent: the same after this percentage (1 to 99) is reached, 0 = never; works for every download
 CGFloat sDownloadTestSizeMB = 800;      // DownloadTestSizeMB: size of the test download
 NSInteger sDownloadStyle = 0;           // DownloadProgressStyle: 0 minimal (default), 1 detailed
 CGFloat sDownloadPillWidth = 296;         // DownloadPillWidth: the Minimal pill, in points (never narrower than the Island plus a margin)
@@ -234,7 +236,7 @@ static void OITIIslandPillRect(CGRect *rectOut, NSString **sourceOut) {
 // One line describing why the pill is or is not on screen. Written right after it is shown and again 0.8 s later.
 - (void)logState:(NSString *)when {
     CALayer *shown = _pill.layer.presentationLayer;
-    [sLog logTag:@"DOWNLOAD" format:@"pill %@: window hidden=%d scene=%@ level=%.0f key=%d pillWindowMatches=%d pill hidden=%d alpha=%.2f onScreenFrame=%@ | %@",
+    [sLog logLevel:1 tag:@"DOWNLOAD" format:@"pill %@: window hidden=%d scene=%@ level=%.0f key=%d pillWindowMatches=%d pill hidden=%d alpha=%.2f onScreenFrame=%@ | %@",
      when, _window.hidden, _window.windowScene ? NSStringFromClass([_window.windowScene class]) : @"none", (double)_window.windowLevel,
      _window.isKeyWindow, _pill.window == _window, _pill.hidden, _pill.alpha, shown ? NSStringFromCGRect(shown.frame) : @"none",
      _geometryNote ?: @"no geometry"];
@@ -322,6 +324,32 @@ static NSString *OITIDownloadHeaderText(NSDictionary *snapshot) {
 
 // Writes the snapshot into whichever look is showing. complete shows the finished state.
 // ending: 0 = running, 1 = completed, 2 = cancelled (a short red "Cancelled" state).
+// The Detailed look's completion check: in the trailing slot a green circle with a drawn check replaces the percentage text
+// (the label keeps its text and size, only its colour is cleared, so nothing in the element's layout changes). Any later update
+// that is not a completion (a new download started, or the download was cancelled) puts the percentage back.
+static void OITIDownloadSetDetailedCheck(UILabel *trailing, BOOL show) {
+    OITICheckBadgeView *badge = nil;
+    for (UIView *subview in trailing.subviews) {
+        if ([subview isKindOfClass:[OITICheckBadgeView class]]) { badge = (OITICheckBadgeView *)subview; break; }
+    }
+    if (show) {
+        if (badge) return;   // the end state can be applied more than once
+        CGFloat d = 16.0;
+        badge = [[OITICheckBadgeView alloc] initWithFrame:CGRectMake(0, 0, d, d)];
+        badge.restoreColor = trailing.textColor;
+        badge.center = CGPointMake(trailing.bounds.size.width / 2.0, trailing.bounds.size.height / 2.0);
+        badge.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin |
+                                 UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
+        [trailing addSubview:badge];
+        trailing.textColor = [UIColor clearColor];
+        [badge playAnimated:!UIAccessibilityIsReduceMotionEnabled()];
+        [sLog logLevel:1 tag:@"DOWNLOAD" format:@"Detailed look: completion check shown in the trailing slot (label %@)", NSStringFromCGRect(trailing.frame)];
+    } else if (badge) {
+        trailing.textColor = badge.restoreColor ?: [UIColor whiteColor];
+        [badge removeFromSuperview];
+    }
+}
+
 static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     BOOL complete = ending == 1;
     BOOL cancelled = ending == 2;
@@ -393,10 +421,19 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
         trailing.text = percent;
         [trailing sizeToFit];
     }
+    if ([trailing isKindOfClass:[UILabel class]]) OITIDownloadSetDetailedCheck(trailing, complete);
 }
 
 static void OITIDownloadsEnsureTimer(void);
 static void OITIFakeDownloadAdvance(void);
+
+// The one-line progress text the Detailed look gives the element ("42%" or "12.3 MB of 80 MB").
+static NSString *OITIDownloadMessageText(NSDictionary *snapshot) {
+    return [snapshot[@"fractionMode"] boolValue]
+        ? [NSString stringWithFormat:@"%d%%", (int)floor([snapshot[@"fraction"] doubleValue] * 100.0 + 0.0001)]
+        : [NSString stringWithFormat:@"%@ of %@", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue]),
+           [snapshot[@"total"] doubleValue] > 0 ? OITIDownloadBytesText([snapshot[@"total"] doubleValue]) : @"?"];
+}
 
 // Presents, updates and ends the element for the current state. Called after every update and from the timer.
 void OITIDownloadsRefresh(void) {
@@ -410,15 +447,21 @@ void OITIDownloadsRefresh(void) {
     sDownloadCompleteGeneration++;   // a pending "complete" removal no longer applies
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
 
-    // Return to idle by size or by time, whichever look is showing.
+    // Return to idle by size, by percentage or by time, whichever look is showing.
     if (sDownloadItem || sDownloadPill) {
         double limitBytes = sDownloadIdleAfterMB * 1000.0 * 1000.0;   // decimal MB, like the size text
         BOOL byBytes = limitBytes > 0 && ![snapshot[@"fractionMode"] boolValue] && [snapshot[@"downloaded"] doubleValue] >= limitBytes;   // sizes are unknown in fraction mode
         BOOL byTime = sDownloadIdleAfterSeconds > 0 && now - sDownloadShownAt >= sDownloadIdleAfterSeconds;
-        if (byBytes || byTime) {
+        // The percentage is the snapshot's fraction (the same value the bar shows; the mean with several downloads), so it also
+        // works for App Store downloads, which report no sizes. Like the size limit it counts what is downloaded, not time on
+        // screen: a download that is already past the limit when it first appears never shows.
+        double percentNow = [snapshot[@"fraction"] doubleValue] * 100.0;
+        BOOL byPercent = sDownloadIdleAfterPercent > 0 && percentNow + 0.0001 >= sDownloadIdleAfterPercent;
+        if (byBytes || byPercent || byTime) {
             [sLog logTag:@"DOWNLOAD" format:@"limit reached (%@): the Island returns to idle, the download carries on",
              byBytes ? [NSString stringWithFormat:@"%@ downloaded", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue])]
-                     : [NSString stringWithFormat:@"%.0f s on screen", (double)(now - sDownloadShownAt)]];
+                     : (byPercent ? [NSString stringWithFormat:@"%.0f%% downloaded", percentNow]
+                                  : [NSString stringWithFormat:@"%.0f s on screen", (double)(now - sDownloadShownAt)])];
             sDownloadCollapsed = YES;
             if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"download-limit");
             OITIDownloadPillDismiss(@"download-limit");
@@ -461,10 +504,7 @@ void OITIDownloadsRefresh(void) {
             }
         }
     } else if (!sDownloadCollapsed && now >= sDownloadNextPresentAttempt) {
-        NSString *message = [snapshot[@"fractionMode"] boolValue]
-            ? [NSString stringWithFormat:@"%d%%", (int)floor([snapshot[@"fraction"] doubleValue] * 100.0 + 0.0001)]
-            : [NSString stringWithFormat:@"%@ of %@", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue]),
-               [snapshot[@"total"] doubleValue] > 0 ? OITIDownloadBytesText([snapshot[@"total"] doubleValue]) : @"?"];
+        NSString *message = OITIDownloadMessageText(snapshot);
         NSDictionary *info = @{ @"bundleID": snapshot[@"bundleID"], @"appName": snapshot[@"appName"], @"title": snapshot[@"title"], @"message": message };
         if (OITIPresentNoticeElement(info, @"download-progress")) {
             [sLog logTag:@"DOWNLOAD" format:@"progress element up for %@", snapshot[@"title"]];
@@ -476,7 +516,9 @@ void OITIDownloadsRefresh(void) {
 }
 
 // Called from OITIRemoveNoticeItem when the download element leaves. Removals we made ourselves are recorded as such;
-// anything else (a swipe, a notification replacing it, stack capacity) keeps it away until the next download starts.
+// anything else (a swipe by the user, the system or a failure) keeps it away until the next download starts. A notification no
+// longer removes it: the presenter keeps the Detailed download in the stack (v0.3.0 polish, A8); the "capacity" and
+// "stack-disabled-replaced" reasons below stay only as a safety net.
 void OITIDownloadItemRemoved(NSDictionary *item, NSString *reason) {
     sDownloadItem = nil;
     NSArray<NSString *> *ours = @[@"download-limit", @"download-complete", @"download-cancelled", @"feature-disabled",

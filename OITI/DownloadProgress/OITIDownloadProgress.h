@@ -12,6 +12,7 @@ extern BOOL sDownloadAppStoreEnabled;
 extern BOOL sDownloadTestFractionOnly;
 extern CGFloat sDownloadIdleAfterMB;
 extern CGFloat sDownloadIdleAfterSeconds;
+extern CGFloat sDownloadIdleAfterPercent;
 extern CGFloat sDownloadTestSizeMB;
 extern NSInteger sDownloadStyle;
 extern CGFloat sDownloadPillWidth;
@@ -35,6 +36,13 @@ static const CGFloat kOITIMinimalHeight = 56.0;          // height it asks for
           percent:(NSString *)percent fraction:(double)fraction complete:(BOOL)complete;
 - (void)playCompletion;    // the text fades out, the bar becomes a green circle and a check is drawn in it
 - (void)resetCompletion;   // back to the normal layout (a new download started)
+@end
+
+// A small green circle with a white check that is drawn when it appears. The Detailed look puts it in the element's trailing slot
+// in place of the percentage when a download completes (the Minimal look has its own, larger version inside the pill).
+@interface OITICheckBadgeView : UIView
+@property (nonatomic, strong) UIColor *restoreColor;   // the text colour of the label it replaced
+- (void)playAnimated:(BOOL)animated;
 @end
 
 @interface OITIDownloadPill : NSObject

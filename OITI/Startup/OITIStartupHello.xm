@@ -14,6 +14,10 @@ static NSString * const kOITIStartupHelloLastPlayedKey = @"IslandStartupHelloLas
 static NSString * const kOITIStartupHelloVideoPath = @"/var/jb/Library/Application Support/OITI/StartupHello.mp4";
 static const NSTimeInterval kOITIStartupHelloCooldown = 300.0;
 const NSTimeInterval kOITIStartupHelloPrototypeDuration = 8.0;
+// The clip ends on a black frame and AVPlayer keeps showing the last frame after the end, so waiting this long before the element
+// is removed adds that many seconds of the empty black card; nothing moves. Owner request (v0.3.0 polish): Hello 0.5 s longer in
+// build OITI-exp-2026-11-03-a, then judged too long at 0.5 and set to 0.25 s in OITI-exp-2026-11-03-b.
+const NSTimeInterval kOITIStartupHelloEndHold = 0.25;
 
 BOOL sStartupHelloObservationWindowOpen;
 BOOL sStartupHelloActivitySeen;
@@ -156,7 +160,7 @@ void OITIRunStartupHello(void) {
         }
         // Persist only after the Island element was registered, so a failed presentation does not consume the cooldown.
         NSDictionary *info = @{ @"bundleID": @"com.apple.Preferences", @"appName": @"Insula",
-                                @"title": @"Hello", @"subtitle": @"", @"message": @"Startup animation prototype" };
+                                @"title": @"Hello", @"subtitle": @"", @"message": @"Startup animation" };
         BOOL shown = OITIPresentNoticeElement(info, @"startup-hello");
         sStartupHelloObservationWindowOpen = NO;
         if (shown) {

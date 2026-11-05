@@ -45,7 +45,7 @@ It is off by default. Turn it on in **Settings > Insula > Notifications**:
 - **Duration**, **Message Lines** and **Roundness** sliders
 - **Notification Haptic:** a short, light tap when a banner arrives. It works with or without Island Notifications.
 
-The stack keeps up to four notices. Expanded and Wide show the newest as the main item and older notices as individual rounded compact cards inside the expanded Island card; Compact keeps all notices compact. **Stack Multiple Notifications (Experimental)** is a separate toggle. The stack is usable but not polished yet.
+The stack keeps up to four notices. The newest notice is the Island notification in the chosen style; older notices appear as small cards of their own below the Island, each with its own tap and swipe up. **Stack Multiple Notifications (Experimental)** is a separate toggle. The stack is usable but not polished yet.
 
 If something looks wrong, turn the two switches off and the stock banners come back.
 

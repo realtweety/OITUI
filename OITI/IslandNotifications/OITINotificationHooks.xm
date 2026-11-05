@@ -8,6 +8,7 @@
 #import "Shared/OITIShared.h"
 #import "IslandNotifications/OITIIslandNotifications.h"
 #import "DownloadProgress/OITIDownloadProgress.h"
+#import "Safety/OITISafety.h"   // OITIMarkElementsOff: the Settings notice when the promotion guard switches elements off
 
 // ---- Promotion guard --------------------------------------------------------------------------
 // poc2's element made -[SAUISystemApertureManager _reevaluatePromotedElements] throw inside -[NSArray insertObject:atIndex:],
@@ -34,7 +35,15 @@ static void OITIInstallPromotionGuard(void) {
             for (NSUInteger i = 0; i < MIN(stack.count, (NSUInteger)10); i++) {
                 [sLog logTag:@"ELEMENT" format:@"GUARD   %@", stack[i]];
             }
-            if (++sPoCFailureCount >= 5) sPoCDisabledAfterFailure = YES;
+            if (++sPoCFailureCount >= 5) {
+                if (!sPoCDisabledAfterFailure) {
+                    // Visible, not only logged: Settings reads this flag file and shows a notice with a Respring button. The
+                    // guard itself (the catch, the dismissal, the switch-off after five) is unchanged.
+                    [sLog logTag:@"ELEMENT" format:@"GUARD element creation is now OFF until the next respring (%d exceptions caught, last: %@)", sPoCFailureCount, exception.name];
+                    OITIMarkElementsOff(sPoCFailureCount, exception.name);
+                }
+                sPoCDisabledAfterFailure = YES;
+            }
             id registered = OITIKVCObject(receiver, @"registeredElements");
             if ([registered conformsToProtocol:@protocol(NSFastEnumeration)]) {
                 NSUInteger shown = 0;

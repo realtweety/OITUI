@@ -9,6 +9,8 @@
         <string>PSGroupCell</string>
         <key>label</key>
         <string>Custom Opacity</string>
+        <key>footerText</key>
+        <string>Makes the Island see-through by this amount. 1.0 is fully opaque, which is stock. This slider is the only transparency control: the custom color below is always opaque. Changes apply immediately, with no respring.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -49,6 +51,8 @@
         <string>PSGroupCell</string>
         <key>label</key>
         <string>Custom Color</string>
+        <key>footerText</key>
+        <string>Sets the Island's background color from the Red, Green and Blue sliders below. The color is always opaque; use Custom Opacity above to make the Island see-through. Changes apply immediately, with no respring.</string>
       </dict>
       <dict>
         <key>cell</key>

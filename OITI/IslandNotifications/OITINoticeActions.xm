@@ -68,6 +68,14 @@ static BOOL OITIOpenURL(NSURL *url) {
     return YES;
 }
 
+// Opens Insula's own page in the Settings app (the Hello's tap). The URL is the one the PreferenceLoader entry label gives
+// (OITIPrefs/Resources/entry.plist, label "Insula"); the owner confirmed on the phone that `uiopen "prefs:root=Insula"` lands on that
+// page, so the label and this URL must change together. If no URL API exists the Settings app is launched instead.
+void OITIOpenInsulaSettings(void) {
+    NSURL *url = [NSURL URLWithString:@"prefs:root=Insula"];
+    if (!(url && OITIOpenURL(url))) OITIOpenApp(@"com.apple.Preferences");
+}
+
 // The stock banner is still alive (only faded) while OITI's element shows, so a tap can run exactly what a tap on it runs:
 // NCNotificationViewController -_executeDefaultAction: (found with a class dump on 16.7.16; the banner's view controllers are
 // BNContentViewController > SBNotificationPresentableViewController > NCNotificationShortLookViewController). Apple's own code
@@ -125,13 +133,28 @@ static BOOL OITIExecuteStockBannerTap(id request) {
 - (void)handleTap:(UIGestureRecognizer *)recognizer {
     if (self.handled) return;
     self.handled = YES;
-    NSURL *url = OITIDefaultActionURL(self.request);
-    [sLog logLevel:1 tag:@"ELEMENT" format:@"TAP on the notification element (%@) seen by %@ url=%@", self.bundleID,
-     NSStringFromClass([recognizer.view class]), url];
-    if (!OITIExecuteStockBannerTap(self.request)) {   // fallbacks: the default action's URL, then just the app
-        if (!(url && OITIOpenURL(url))) OITIOpenApp(self.bundleID);
+    if (self.tapAction) {
+        // The Hello is not a notification: no stock banner, no request, no default action. Its tap has its own action.
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"TAP on the startup animation (%@) seen by %@", self.bundleID, NSStringFromClass([recognizer.view class])];
+        self.tapAction();
+    } else {
+        NSURL *url = OITIDefaultActionURL(self.request);
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"TAP on the notification element (%@) seen by %@ url=%@", self.bundleID,
+         NSStringFromClass([recognizer.view class]), url];
+        if (!OITIExecuteStockBannerTap(self.request)) {   // fallbacks: the default action's URL, then just the app
+            if (!(url && OITIOpenURL(url))) OITIOpenApp(self.bundleID);
+        }
     }
-    // Opening a notification does not remove it from the stack; it remains until timeout or swipe dismissal.
+    // By default opening a notification does not remove it from the stack; it remains until timeout or swipe dismissal.
+    // Notification Tap Dismisses (default off) removes a notification notice shortly after the tap has been handed to SpringBoard;
+    // the Hello and a download keep their behavior. The setting is read at tap time, so it applies to a notice already on screen.
+    if (sIslandNotificationTapDismisses && self.tapDismiss) {
+        void (^dismiss)(void) = [self.tapDismiss copy];
+        [sLog logLevel:1 tag:@"ELEMENT" format:@"TAP dismisses the notification element (Notification Tap Dismisses is on)"];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            dismiss();   // a no-op when the notice is already gone (timeout, swipe, eviction)
+        });
+    }
     __weak OITINoticeActions *weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         weakSelf.handled = NO;   // window and element recognizers share one tap, but later taps should still work

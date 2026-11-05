@@ -40,6 +40,8 @@ extern CGSize sRawSensorRegionSize;
 // More shared state (defined in Shared/OITIState.xm): the Apple Mode switch, the relative scale, the live Island windows,
 // the Island notification stack and the download element that the presenter keeps.
 extern BOOL sAppleMode;
+extern BOOL sNotificationHapticEnabled;
+extern BOOL sIslandNotificationTapDismisses;
 extern CGFloat scaleX;
 extern CGFloat scaleY;
 extern NSHashTable<UIView *> *sLiveApertureWindows;
@@ -69,6 +71,8 @@ extern BOOL lineDisabled;
 
 // The preferences reload (Shared/OITIPreferences.xm), called by the %ctor.
 void preferencesChanged(void);
+void OITIPrepareEarlyPreferences(void);   // preferences object + log and guard settings only; before the loop guard
+void OITIApplySafeModePreferences(void);  // what safe mode loads instead of preferencesChanged()
 
 // Helpers.
 NSString *OITIObjectSummary(id object);

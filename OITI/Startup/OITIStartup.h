@@ -15,6 +15,7 @@
 @end
 
 extern const NSTimeInterval kOITIStartupHelloPrototypeDuration;
+extern const NSTimeInterval kOITIStartupHelloEndHold;   // seconds the last frame stays after the clip ends (v0.3.0 polish)
 extern BOOL islandStartupHelloEnabled;   // defined in Shared/OITIState.xm
 extern BOOL sStartupHelloObservationWindowOpen;
 extern BOOL sStartupHelloActivitySeen;

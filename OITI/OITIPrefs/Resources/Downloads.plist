@@ -12,7 +12,7 @@
         <key>label</key>
         <string>Download Progress (Experimental)</string>
         <key>footerText</key>
-        <string>Shows the Island as a progress bar with the downloaded size, the total size and the speed while something downloads. Off by default. Early feature: the built-in test download and App Store downloads (switch below) work so far. Browser downloads come later.</string>
+        <string>Shows the Island as a progress bar with the downloaded size, the total size and the speed while something downloads. Off by default. Early feature: the built-in test download and App Store downloads (switch below) work so far. Browser downloads come later. Turning it on or off applies immediately; Apple Mode turns it off.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -34,7 +34,7 @@
         <key>label</key>
         <string>App Store Downloads (Experimental)</string>
         <key>footerText</key>
-        <string>Shows an App Store download as it happens (a new install; updates and TestFlight are not confirmed yet). iOS only reports a percentage for these, so you get the bar, the percentage and an estimate of the time left, not sizes or speed. Needs Show Download Progress above. Off by default.</string>
+        <string>Shows an App Store download as it happens (a new install; updates and TestFlight are not confirmed yet). iOS only reports a percentage for these, so you get the bar, the percentage and an estimate of the time left, not sizes or speed. Needs Show Download Progress above. Turning it on or off applies immediately (it starts or stops watching the App Store). Off by default; Apple Mode turns it off.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -56,7 +56,7 @@
         <key>label</key>
         <string>Look</string>
         <key>footerText</key>
-        <string>Minimal draws its own pill: a header with the app and file name, the downloaded size above the bar, the total below it, the speed on the left and the percentage on the right. Detailed is the system's expanded Island with the name and one line of text under a bar.</string>
+        <string>Minimal draws its own pill: a header with the app and file name, the downloaded size above the bar, the total below it, the speed on the left and the percentage on the right. Detailed is the system's expanded Island with the name and one line of text under a bar. Changing the look applies immediately and replaces the bar that is showing.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -164,7 +164,7 @@
         <key>label</key>
         <string>Return to Idle</string>
         <key>footerText</key>
-        <string>The expanded Island goes back to idle when either limit is reached. Never means no limit. The download itself carries on, and the progress bar comes back when the next download starts. Swiping the bar away does the same. The size limit only applies to downloads that report sizes (the test download); App Store downloads report a percentage only, so use the time limit for them.</string>
+        <string>The expanded Island goes back to idle when any of the three limits is reached. Never means no limit. The download itself carries on, and the progress bar comes back when the next download starts. Swiping the bar away does the same. The size limit only applies to downloads that report sizes (the test download); App Store downloads report a percentage only, so use the percentage or the time limit for them. The percentage limit counts what is downloaded: a download already past it when the bar would appear never shows the bar. Changes apply to the download that is on screen as well.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -185,6 +185,30 @@
         <true/>
         <key>valueFormat</key>
         <string>%.0f MB</string>
+        <key>zeroText</key>
+        <string>Never</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>After this percentage is reached</string>
+        <key>default</key>
+        <real>0.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadIdleAfterPercent</string>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>99.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f%%</string>
         <key>zeroText</key>
         <string>Never</string>
         <key>PostNotification</key>
@@ -220,7 +244,7 @@
         <key>label</key>
         <string>Test Download</string>
         <key>footerText</key>
-        <string>A simulated download with a changing speed, for trying the layout and the limits. Turn on Show Download Progress first. Apple Mode hides it like every other customization.</string>
+        <string>A simulated download with a changing speed, for trying the layout and the limits. Turn on Show Download Progress first. The size applies the next time you start a test. Apple Mode hides it like every other customization.</string>
       </dict>
       <dict>
         <key>cell</key>

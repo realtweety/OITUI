@@ -26,7 +26,7 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>footerText</key>
-        <string>Turns off every Island customization and leaves a stock iOS Dynamic Island. Off while on: custom position, scale, Island size, color, opacity, outline hiding, hide when not in use, custom notification position, Island Notifications, download progress and the startup animation. Still active: Enable Dynamic Island, Fix Island Position, Fix Notification Positioning, Status Bar Layout and safe mode. Your settings are kept and return when Apple Mode is turned off.</string>
+        <string>Turns off every Island customization and leaves a stock iOS Dynamic Island. Off while on: custom position, scale, Island size, color, opacity, outline hiding, hide when not in use, custom notification position, Island Notifications (and with them the notification stack), the notification haptic, Dismiss When Tapped, download progress and the startup animation. Still active: Enable Dynamic Island, Fix Island Position, Fix Notification Positioning, Status Bar Layout and safe mode. Applies immediately. Your settings are kept and return when Apple Mode is turned off.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -46,7 +46,7 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>footerText</key>
-        <string>If your device isn't supported yet, use the custom positioning instead.</string>
+        <string>Moves the Island to the built-in position for your device. If your device isn't supported yet this has no effect: use the custom positioning below instead. Applies immediately; if the Island looks wrong after switching it on or off, respring.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -67,6 +67,8 @@
         <string>PSGroupCell</string>
         <key>label</key>
         <string>Custom Island Positioning</string>
+        <key>footerText</key>
+        <string>Moves the Island to the X and Y you enter, in points, at most one screen either way. The default Y is 20.5. Values are saved when you leave a field or tap Save, and the Island follows immediately. While Use Custom Scale is on, X only applies when it is above 0. Fix Island Position takes priority when it is on and your device is supported.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -110,9 +112,9 @@
         <key>prompt</key>
         <string>Enter Y Position</string>
         <key>bestGuess</key>
-        <string>20</string>
+        <string>20.5</string>
         <key>placeholder</key>
-        <string>20</string>
+        <string>20.5</string>
         <key>isNumeric</key>
         <false/>
         <key>PostNotification</key>
@@ -124,7 +126,7 @@
       </dict>
       <dict>
         <key>action</key>
-        <string>savePos</string>
+        <string>savePos:</string>
         <key>cell</key>
         <string>PSButtonCell</string>
         <key>label</key>
@@ -137,6 +139,8 @@
         <string>PSGroupCell</string>
         <key>label</key>
         <string>Misc</string>
+        <key>footerText</key>
+        <string>Disable Island Outline applies immediately. Hide When Not in Use applies after a respring, and turning it off needs one too.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -165,6 +169,10 @@
         <string>Disable Island Outline</string>
         <key>PostNotification</key>
         <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
       </dict>
       <dict>
 	      <key>cell</key>
@@ -220,7 +228,7 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
-        <string>STATUS BAR (EXPERIMENTAL)</string>
+        <string>Status Bar (Experimental)</string>
         <key>footerText</key>
         <string>If a red bar reading "rdar:45025538" shows at the top of the screen with the Island on, Automatic picks the status bar layout for your screen. The other layouts are for trying by hand. Respring after changing it. Only used while the Island is on.</string>
       </dict>
